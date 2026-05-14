@@ -1,0 +1,869 @@
+/* 
+ * Copyright (C) 2024 Paul Hill
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version. 
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details. 
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+#include <clib/alib_protos.h>
+#include <clib/exec_protos.h>
+#include <devices/scsidisk.h>
+#include <proto/dos.h>
+#include <proto/exec.h>
+#include <proto/expansion.h>
+#include <proto/utility.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define BLUESCSI_TOOLBOX_COUNT_FILES 0xD2
+#define BLUESCSI_TOOLBOX_LIST_FILES 0xD0
+#define BLUESCSI_TOOLBOX_GET_FILE 0xD1
+#define BLUESCSI_TOOLBOX_SEND_FILE_PREP 0xD3
+#define BLUESCSI_TOOLBOX_SEND_FILE_10 0xD4
+#define BLUESCSI_TOOLBOX_SEND_FILE_END 0xD5
+#define BLUESCSI_TOOLBOX_TOGGLE_DEBUG 0xD6
+#define BLUESCSI_TOOLBOX_LIST_CDS 0xD7
+#define BLUESCSI_TOOLBOX_SET_NEXT_CD 0xD8
+#define BLUESCSI_TOOLBOX_LIST_DEVICES 0xD9
+#define BLUESCSI_TOOLBOX_METADATA 0xD9
+#define BLUESCSI_TOOLBOX_COUNT_CDS 0xDA
+
+// 0xD9 Metadata subcommands (CDB[1])
+#define BLUESCSI_TOOLBOX_SUBCMD_LIST_DEVICES 0x00
+#define BLUESCSI_TOOLBOX_SUBCMD_GET_CAPABILITIES 0x01
+
+// Capability flags
+#define BLUESCSI_TOOLBOX_CAP_LARGE_TRANSFERS 0x01
+#define BLUESCSI_TOOLBOX_CAP_LARGE_SEND 0x02
+
+#define SCSI_CMD_INQ 0x12
+
+// from BlueSCSI_Toolbox.cpp
+#define MAX_MAC_PATH 32
+#define ENTRY_SIZE 40
+
+static const char ver[] = "$VER: BlueSCSIToolbox 1.3 (7.3.2026)";
+
+int Toolbox_List_Files(int cdrom);
+int Toolbox_List_Devices(void);
+int Toolbox_GetCapabilities(void);
+int Toolbox_Count_Files(int cdrom);
+unsigned long long Toolbox_GetFileByName(char *destination, char *source);
+int Toolbox_PutFileByName(char *destination, char *source);
+int Toolbox_List_CDs(void);
+void Toolbox_Show_files(void);
+void Toolbox_Next_CD(int index);
+void Toolbox_Debug(int debugon);
+
+void dump(char *msg, UBYTE *d, int len);
+void DiskChange(void);
+void bstrcpy(char *dest,UBYTE *src);
+int DoScsiCmd(UBYTE *data, int datasize, UBYTE *cmd, int cmdsize, UBYTE flags);
+int BlueSCSI_InitDevice(void);
+static int Toolbox_InquiryHasName(const char *name);
+static unsigned long long Toolbox_ParseEntrySize(const UBYTE *entry);
+static void Toolbox_FormatSize(char *buffer, int length, unsigned long long size);
+
+struct IOStdReq *io_ptr;
+struct MsgPort *mp_ptr;
+struct SCSICmd *scsi_cmd;
+UBYTE *scsi_sense;
+UBYTE *scsi_data = NULL;
+struct Library *UtilityBase = NULL;
+
+LONG scsi_removable;
+LONG scsi_isCD;
+LONG scsi_isBlueSCSI;
+LONG scsi_isZuluSCSI;
+UBYTE scsi_apiVersion;
+UBYTE scsi_capabilities;
+
+UBYTE scsi_dev[1024];
+LONG scsi_id = 0;
+
+#define SENSE_LEN 252
+#define MAX_DATA_LEN 4096
+
+struct FileEntry
+{
+   int Index;
+   unsigned long long Size;
+   int Type;
+   char Name[32 + 1];
+};
+
+struct FileEntry *files = NULL;
+int filecount = 0;
+
+// ReadArgs template
+char *template = "DEVICE/K,UNIT/K/N,DIR=LIST/S,SEND/K,RECEIVE/K,LISTDEVICES/S,LISTCDS/S,SETCD/K/N,SETDEBUG/K/N,INFO/S";
+
+enum ToolboxCommand
+{
+   TOOLBOX_NONE,
+   TOOLBOX_DIR,
+   TOOLBOX_SEND,
+   TOOLBOX_RECEIVE,
+   TOOLBOX_LISTDEVICES,
+   TOOLBOX_LISTCDS,
+   TOOLBOX_SETCD,
+   TOOLBOX_SETDEBUG,
+   TOOLBOX_INFO
+};
+
+enum ToolboxParams
+{
+   DEVICE,
+   UNIT,
+   DIR,
+   SEND,
+   RECEIVE,
+   LISTDEVICES,
+   LISTCDS,
+   SETCD,
+   SETDEBUG,
+   INFO
+};
+
+int main(int argc, char* argv[])
+{
+   struct RDArgs *rd;
+   enum ToolboxCommand toolboxCommand = TOOLBOX_NONE;
+   int capabilities_ok;
+   char filename[256];
+   LONG params[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   LONG nextcd;
+   LONG debugon;
+   
+   if ((UtilityBase = OpenLibrary("utility.library", 37L)) == NULL)
+   {
+      goto exit;
+   }
+
+   rd = ReadArgs(template, params, NULL);
+   if (rd)
+   {
+      if (params[DEVICE])
+      {
+         strncpy(scsi_dev, (char *)params[DEVICE], sizeof(scsi_dev));
+      }
+      if (params[UNIT])
+      {
+         scsi_id = (*((LONG *)params[UNIT]));
+      }
+      if (params[DIR])
+      {
+         toolboxCommand = TOOLBOX_DIR;
+      }
+      if (params[SEND])
+      {
+         toolboxCommand = TOOLBOX_SEND;
+         strncpy(filename, (char *)params[SEND], 256);
+      }
+      if (params[RECEIVE])
+      {
+         toolboxCommand = TOOLBOX_RECEIVE;
+         strncpy(filename, (char *)params[RECEIVE], 256);
+      }
+      if (params[LISTDEVICES])
+      {
+         toolboxCommand = TOOLBOX_LISTDEVICES;
+      }
+      if (params[LISTCDS])
+      {
+         toolboxCommand = TOOLBOX_LISTCDS;
+      }
+      if (params[SETCD])
+      {
+         toolboxCommand = TOOLBOX_SETCD;
+         nextcd = (*((LONG *)params[SETCD]));
+      }
+      if (params[SETDEBUG])
+      {
+         toolboxCommand = TOOLBOX_SETDEBUG;
+         debugon = (*((LONG *)params[SETDEBUG]));
+      }
+      if (params[INFO])
+      {
+         toolboxCommand = TOOLBOX_INFO;
+      }
+      FreeArgs(rd);
+   }
+   else
+   {
+      SetIoErr(ERROR_REQUIRED_ARG_MISSING);
+      PrintFault(IoErr(), argv[0]);
+      return 5;
+   }
+
+   if (toolboxCommand == TOOLBOX_NONE)
+   {
+      SetIoErr(ERROR_REQUIRED_ARG_MISSING);
+      PrintFault(IoErr(), argv[0]);
+      return 5;
+   }
+
+   if ((mp_ptr = (struct MsgPort *)CreateMsgPort()) == NULL)
+   {
+      PutStr("CreatePort failed!\n");
+      goto exit;
+   }
+   if ((io_ptr = (struct IOStdReq *)CreateIORequest(mp_ptr, sizeof(struct IOStdReq))) == NULL)
+   {
+      PutStr("CreateIORequest failed!\n");
+      goto exit;
+   }
+   if (OpenDevice(scsi_dev, scsi_id, (struct IORequest *)io_ptr, 0) != 0)
+   {
+      Printf("Error %ld opening SCSI device %s unit %ld\n", io_ptr->io_Error, scsi_dev, scsi_id);
+      goto exit;
+   }
+   if ((scsi_cmd = (struct SCSICmd *)AllocMem(sizeof(struct SCSICmd), MEMF_CLEAR)) == NULL)
+   {
+      PutStr("AllocMem scsi_cmd failed\n");
+      goto exit;
+   }
+   if ((scsi_sense = (UBYTE *)AllocMem(SENSE_LEN, MEMF_CLEAR)) == NULL)
+   {
+      PutStr("AllocMem scsi_sense failed\n");
+      goto exit;
+   }
+   scsi_data = (UBYTE *)AllocMem(MAX_DATA_LEN, MEMF_CLEAR);
+   if (scsi_data == NULL)
+   {
+      PutStr("AllocMem scsi_data failed\n");
+      goto exit;
+   }
+
+   // Init the device and read some flags
+   if (BlueSCSI_InitDevice())
+   {
+      PutStr("Error sending inquiry to device\n");
+      goto exit;
+   }
+   capabilities_ok = Toolbox_GetCapabilities() == 0;
+   if (!capabilities_ok && !scsi_isBlueSCSI && !scsi_isZuluSCSI)
+   {
+      PutStr("Toolbox API not available on this device\n");
+      goto exit;
+   }
+
+   switch (toolboxCommand)
+   {
+   case TOOLBOX_DIR:
+      Toolbox_List_Files(0);
+      Toolbox_Show_files();
+      break;
+   case TOOLBOX_LISTCDS:
+      if (scsi_removable)
+      {
+         Toolbox_List_Files(1);
+         Toolbox_Show_files();
+      }
+      else
+      {
+         PutStr("Not a CDROM\n");
+      }
+      break;
+   case TOOLBOX_SEND:
+      Toolbox_PutFileByName(FilePart(filename), filename);
+      break;
+   case TOOLBOX_RECEIVE:
+      Toolbox_List_Files(0);
+      Toolbox_GetFileByName(filename, FilePart(filename));
+      break;
+   case TOOLBOX_LISTDEVICES:
+      Toolbox_List_Devices();
+      break;
+   case TOOLBOX_SETCD:
+      if (scsi_removable)
+      {
+         Toolbox_List_Files(1);
+         if (nextcd<=0 || nextcd>(filecount))
+         {
+            SetIoErr(ERROR_BAD_NUMBER);
+            PrintFault(IoErr(), NULL);
+         }
+         else
+         {
+            Toolbox_Next_CD(files[nextcd - 1].Index);
+            DiskChange();
+         }
+      }
+      else
+      {
+         PutStr("Not a CDROM\n");
+      }
+      break;
+   case TOOLBOX_SETDEBUG:
+      Toolbox_Debug(debugon);
+      break;
+   case TOOLBOX_INFO:
+      Printf("Toolbox API version: %ld\n", (LONG)scsi_apiVersion);
+      Printf("Capabilities: 0x%02lx\n", (LONG)scsi_capabilities);
+      if (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_LARGE_TRANSFERS)
+         PutStr("  Large transfers supported\n");
+      if (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_LARGE_SEND)
+         PutStr("  Large send supported\n");
+      Toolbox_List_Devices();
+      break;
+   }
+
+exit:
+
+   if (UtilityBase) CloseLibrary(UtilityBase);
+   if (files) FreeMem(files, sizeof(struct FileEntry) * filecount);
+   if (scsi_data) FreeMem(scsi_data, MAX_DATA_LEN);
+   if (scsi_sense) FreeMem(scsi_sense, SENSE_LEN);
+   if (io_ptr) 
+   {
+      CloseDevice((struct IORequest *)io_ptr);
+      DeleteIORequest(io_ptr);
+   }
+   if (mp_ptr) DeleteMsgPort(mp_ptr);
+}
+
+/* Send a diskchange command to the filesystem that is connected to this device/unit */
+void DiskChange(void)
+{
+   char drive[256];
+	char device[256];
+   int found = 0;
+   
+   struct DosList *dl;
+   dl = LockDosList(LDF_DEVICES | LDF_READ);
+
+   while ((dl = NextDosEntry(dl,LDF_DEVICES)))
+   {
+      struct FileSysStartupMsg *fssm = BADDR(dl->dol_misc.dol_handler.dol_Startup);
+      if (TypeOfMem(fssm) && (APTR)fssm > (APTR)1000)
+      {
+         if (fssm->fssm_Unit == scsi_id)
+         {
+            bstrcpy(device, BADDR(fssm->fssm_Device));
+            if (Stricmp(scsi_dev, device) == 0)
+            {
+               bstrcpy(drive, BADDR(dl->dol_Name));
+               found = 1;
+               break;
+            }
+         }
+      }
+   }
+
+   UnLockDosList (LDF_DEVICES | LDF_READ);
+
+   if (found)
+   {
+      strncat(drive, ":", 256); 
+      Inhibit(drive, DOSTRUE);
+      Inhibit(drive, DOSFALSE);
+   }   
+}
+
+/* Send a SCSI inquiry command to the device to gather some info */
+int BlueSCSI_InitDevice(void)
+{
+   UBYTE command[] = {SCSI_CMD_INQ, 0, 0, 0, 252, 0};
+   int err;
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld\n", err);
+      return -1;
+   }
+
+   if (scsi_cmd->scsi_Actual)
+   {
+      scsi_removable = (scsi_data[1] & 0x80) ? 1 : 0;
+      scsi_isCD = (scsi_data[0] & 0x1F) == 0x05;
+      scsi_isBlueSCSI = Strnicmp("BlueSCSI", &scsi_data[8], 8) == 0;
+      scsi_isZuluSCSI = Strnicmp("ZuluSCSI", &scsi_data[8], 8) == 0;
+      if (!scsi_isBlueSCSI && !scsi_isZuluSCSI)
+      {
+         scsi_isBlueSCSI = Toolbox_InquiryHasName("BlueSCSI");
+         scsi_isZuluSCSI = Toolbox_InquiryHasName("ZuluSCSI");
+      }
+   }
+   return 0;
+}
+
+static int Toolbox_InquiryHasName(const char *name)
+{
+   int i;
+
+   if (scsi_cmd->scsi_Actual < 36 + 8)
+   {
+      return 0;
+   }
+
+   for (i = 36; i <= (int)scsi_cmd->scsi_Actual - 8; i++)
+   {
+      if (Strnicmp((STRPTR)name, (STRPTR)&scsi_data[i], 8) == 0)
+      {
+         return 1;
+      }
+   }
+
+   return 0;
+}
+
+static unsigned long long Toolbox_ParseEntrySize(const UBYTE *entry)
+{
+   return ((unsigned long long)entry[35] << 32)
+      | ((unsigned long long)entry[36] << 24)
+      | ((unsigned long long)entry[37] << 16)
+      | ((unsigned long long)entry[38] << 8)
+      | (unsigned long long)entry[39];
+}
+
+static void Toolbox_FormatSize(char *buffer, int length, unsigned long long size)
+{
+   char temp[32];
+   int pos = sizeof(temp) - 1;
+
+   temp[pos] = '\0';
+   do
+   {
+      temp[--pos] = '0' + (size % 10);
+      size /= 10;
+   } while (size != 0 && pos > 0);
+
+   strncpy(buffer, &temp[pos], length);
+   buffer[length - 1] = '\0';
+}
+
+/* Copy a BCPL string to a C string */
+void bstrcpy(char *dest, UBYTE *src)
+{
+   int len = *src++;
+   strncpy(dest, src, len + 1);
+   dest[len] = 0;
+}
+
+/* Show all the files array */
+void Toolbox_Show_files(void)
+{
+   struct FileEntry *file = files;
+   int i;
+   for (i = 0; i < filecount; i++)
+   {
+      char size_text[32];
+
+      Printf("%2ld: %-32s", i+1, file->Name);
+      if (file->Type == 1)
+      {
+         Toolbox_FormatSize(size_text, sizeof(size_text), file->Size);
+         Printf("%10s\n", size_text);
+      }
+      else
+         PutStr("       Dir\n");
+      file++;
+   }
+}
+
+/* Select a CD image by its toolbox index. */
+void Toolbox_Next_CD(int index)
+{
+   UBYTE command[] = {BLUESCSI_TOOLBOX_SET_NEXT_CD, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   int err;
+   command[1] = index;
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld\n", err);
+      return;
+   }
+}
+
+/* Count the number of files/CD rom images */
+int Toolbox_Count_Files(int cdrom)
+{
+   UBYTE command[] = {BLUESCSI_TOOLBOX_COUNT_FILES, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   int err;
+   int count = 0;
+
+   if (cdrom)
+   {
+      command[0] = BLUESCSI_TOOLBOX_COUNT_CDS;
+   }
+
+   // Causes an Unknown MsgID error if sent to a HD!?
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld\n", err);
+      return -1;
+   }
+
+   if (scsi_cmd->scsi_Actual)
+   {
+      count = (int)scsi_data[0];
+      if (count > 0)
+      {
+         filecount = count;
+         files = (struct FileEntry *)AllocMem(sizeof(struct FileEntry) * count, MEMF_CLEAR);
+      }
+   }
+   return count;
+}
+
+/* Query firmware API version and capability flags */
+int Toolbox_GetCapabilities(void)
+{
+   UBYTE command[] = {BLUESCSI_TOOLBOX_METADATA, BLUESCSI_TOOLBOX_SUBCMD_GET_CAPABILITIES, 0, 0, 0, 0, 0, 0, 8, 0};
+   int err;
+
+   scsi_apiVersion = 0;
+   scsi_capabilities = 0;
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      return -1;
+   }
+
+   if (scsi_cmd->scsi_Actual >= 2)
+   {
+      scsi_apiVersion = scsi_data[0];
+      scsi_capabilities = scsi_data[1];
+   }
+   return 0;
+}
+
+static const char *deviceTypeName(UBYTE type)
+{
+   switch (type)
+   {
+   case 0: return "Hard disk";
+   case 1: return "Removable disk";
+   case 2: return "CD-ROM";
+   case 3: return "Floppy";
+   case 4: return "Magneto-optical";
+   case 5: return "Tape";
+   case 6: return "Network";
+   case 7: return "ZIP drive";
+   case 0xFF: return "Not enabled";
+   default: return "Unknown";
+   }
+}
+
+/* List active SCSI devices via metadata subcommand */
+int Toolbox_List_Devices(void)
+{
+   UBYTE command[] = {BLUESCSI_TOOLBOX_METADATA, BLUESCSI_TOOLBOX_SUBCMD_LIST_DEVICES, 0, 0, 0, 0, 0, 0, 8, 0};
+   int err;
+   int i;
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld\n", err);
+      return -1;
+   }
+
+   if (scsi_cmd->scsi_Actual)
+   {
+      PutStr("SCSI Devices:\n");
+      for (i = 0; i < (int)scsi_cmd->scsi_Actual; i++)
+      {
+         if (scsi_data[i] != 0xFF)
+         {
+            Printf("  ID %ld: %s (%ld)\n", (LONG)i, deviceTypeName(scsi_data[i]), (LONG)scsi_data[i]);
+         }
+      }
+   }
+
+   return 0;
+}
+
+/* Used for sorting dirs/files */
+int FileCompare(const void *s1, const void *s2)
+{
+   struct FileEntry *e1 = (struct FileEntry *)s1;
+   struct FileEntry *e2 = (struct FileEntry *)s2;
+   if (e1->Type == e2->Type)
+      return Stricmp(e1->Name, e2->Name);
+   else
+      return e1->Type - e2->Type;
+}
+
+/* List the files in the shared folder / CD images */
+int Toolbox_List_Files(int cdrom)
+{
+   UBYTE command[] = {BLUESCSI_TOOLBOX_LIST_FILES, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   int err;
+
+   // Update the file count
+   Toolbox_Count_Files(cdrom);
+
+   if (cdrom)
+   {
+      command[0] = BLUESCSI_TOOLBOX_LIST_CDS;
+   }
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld\n", err);
+      return -1;
+   }
+
+   if (scsi_cmd->scsi_Actual)
+   {
+      struct FileEntry *file = files;
+      int f;
+      for (f = 0; f < filecount; f++)
+      {
+         UBYTE *c = &scsi_data[ENTRY_SIZE * f];
+         file->Index = c[0];
+         file->Type = c[1]; // 1=file 0=dir
+         strncpy(file->Name, (char *)&c[2], MAX_MAC_PATH);
+         file->Name[MAX_MAC_PATH] = '\0';
+         file->Size = Toolbox_ParseEntrySize(c);
+         file++;
+      }
+
+      qsort(files, filecount, sizeof(struct FileEntry), FileCompare);
+   }
+   return 0;
+}
+
+/* Copy a file from the shared folder to a destination */
+unsigned long long Toolbox_GetFileByName(char *destination, char *source)
+{
+   unsigned long long count = 0;
+   int index = -1;
+   struct FileEntry *file = files;
+   int i;
+   for (i = 0; i < filecount; i++)
+   {
+      if (Stricmp(file->Name, source) == 0)
+      {
+         index = file->Index;
+         break;
+      }
+      file++;
+   }
+
+   if (index >= 0)
+   {
+      int offset = 0; // offset in 4096 size pages
+      unsigned long long size = file->Size;
+      char size_text[32];
+      UBYTE command[] = {BLUESCSI_TOOLBOX_GET_FILE, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+      BPTR fh;
+      command[1] = index;
+
+      fh = Open(destination, MODE_NEWFILE);
+      if (!fh)
+      {
+         SetIoErr(ERROR_OBJECT_NOT_FOUND);
+         PrintFault(IoErr(), destination);
+         return 0;
+      }
+
+      while (count < size)
+      {
+         int err;
+         command[2] = (offset & 0xFF000000) >> 24;
+         command[3] = (offset & 0x00FF0000) >> 16;
+         command[4] = (offset & 0x0000FF00) >> 8;
+         command[5] = (offset & 0x000000FF);
+
+         if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                              (UBYTE *)&command, sizeof(command),
+                              (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+         {
+            Printf("SCSI error %ld\n", err);
+            break;
+         }
+
+         if (scsi_cmd->scsi_Actual)
+         {
+            unsigned long long remaining = size - count;
+            ULONG chunk = scsi_cmd->scsi_Actual;
+
+            if ((unsigned long long)chunk > remaining)
+            {
+               chunk = (ULONG)remaining;
+            }
+
+            if (chunk == 0)
+            {
+               break;
+            }
+
+            count += chunk;
+            offset++;
+            Write(fh, scsi_data, chunk);
+         }
+         else
+         {
+            break;
+         }
+      }
+      Close(fh);
+      Toolbox_FormatSize(size_text, sizeof(size_text), count);
+      Printf("%s. %s bytes received\n", destination, size_text);
+   }
+   else
+   {
+      SetIoErr(ERROR_OBJECT_NOT_FOUND);
+      PrintFault(IoErr(), destination);
+   }
+   
+   return count;
+}
+
+/* Write a file to the shared folder */
+int Toolbox_PutFileByName(char *destination, char *source)
+{
+   int err;
+   int count = 0;
+   BPTR fh;
+   int offset;
+   UBYTE command[] = {BLUESCSI_TOOLBOX_SEND_FILE_PREP, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+   char *name = destination;
+   int i = 0;
+   while (*name)
+   {
+      scsi_data[i++] = *name++;
+   }
+   scsi_data[i++] = '\0';
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld\n", err);
+      return 0;
+   }
+
+   fh = Open(source, MODE_OLDFILE);
+   if (!fh)
+   {
+      SetIoErr(ERROR_OBJECT_NOT_FOUND);
+      PrintFault(IoErr(), source);
+      return 0;
+   }
+
+   offset = 0; // offset in 512 byte pages
+   while (1)
+   {
+      LONG len = Read(fh, scsi_data, 512);
+      if (len == 0)
+      {
+         break;
+      }
+
+      command[0] = BLUESCSI_TOOLBOX_SEND_FILE_10;
+      command[1] = (len & 0xFF00) >> 8;
+      command[2] = (len & 0xFF);
+      command[3] = (offset & 0xFF0000) >> 16;
+      command[4] = (offset & 0xFF00) >> 8;
+      command[5] = (offset & 0xFF);
+      if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                           (UBYTE *)&command, sizeof(command),
+                           (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+      {
+         Printf("SCSI error %ld\n", err);
+         return -1;
+      }
+
+      offset++;
+   }
+
+   command[0] = BLUESCSI_TOOLBOX_SEND_FILE_END;
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld\n", err);
+      return 0;
+   }
+   
+   Close(fh);
+   return count;
+}
+
+/* Enable/Disable debug logging on the device */
+void Toolbox_Debug(int debugon)
+{
+   int err;
+   UBYTE command[] = {BLUESCSI_TOOLBOX_TOGGLE_DEBUG, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   // CDB[1]=0 means SET debug level, CDB[2]=value
+   command[1] = 0;
+   command[2] = debugon;
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld\n", err);
+   }
+   else
+   {
+      Printf("Debug set to %ld\n", (LONG)debugon);
+   }
+}
+
+/* Send a SCSI command */
+int DoScsiCmd(UBYTE *data, int datasize, UBYTE *cmd, int cmdsize, UBYTE flags)
+{
+   io_ptr->io_Length = sizeof(struct SCSICmd);
+   io_ptr->io_Data = scsi_cmd;
+   io_ptr->io_Command = HD_SCSICMD;
+
+//Printf("io_ptr->io_Flags=%lx\n", io_ptr->io_Flags);
+//   io_ptr->io_Flags = 0;
+
+   scsi_cmd->scsi_Data = (UWORD *)data;
+   scsi_cmd->scsi_Length = datasize;
+   scsi_cmd->scsi_SenseActual = 0;
+   scsi_cmd->scsi_SenseLength = SENSE_LEN;
+   scsi_cmd->scsi_SenseData = scsi_sense;
+   scsi_cmd->scsi_Command = cmd;
+   scsi_cmd->scsi_CmdLength = cmdsize;
+   scsi_cmd->scsi_Flags = flags;
+#if DEBUG
+   dump("\nCalling DoIO", cmd, cmdsize);
+#endif
+   DoIO((struct IORequest *)io_ptr);
+
+#if DEBUG
+   Printf("io_Error=%lx\n", io_ptr->io_Error);
+#endif
+   return (io_ptr->io_Error);
+}
+
+#if DEBUG
+void dump(char *msg, UBYTE *d, int len)
+{
+   Printf("%s (%lu) ", msg, (ULONG)len);
+   for (int i = 0; i < len; i++)
+   {
+      if (i % 16 == 0)
+         Printf("\n%04lx   ", (ULONG)i);
+      Printf("%02lx ", d[i]);
+   }
+   Printf("\n");
+}
+#endif

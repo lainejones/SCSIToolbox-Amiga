@@ -1,0 +1,6 @@
+src/*.o
+src/BlueSCSIToolbox
+src/CDChanger
+src/SDTransfer
+dist/*
+devnotes.txt

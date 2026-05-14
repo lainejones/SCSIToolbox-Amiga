@@ -1,0 +1,504 @@
+Archive member included to satisfy reference by file (symbol)
+
+/opt/amiga/m68k-amigaos/lib//libamiga.a(newobject.o)
+                              CDChanger.o (NewObject)
+/opt/amiga/m68k-amigaos/lib//libamiga.a(NewList.o)
+                              CDChanger.o (NewList)
+/opt/amiga/m68k-amigaos/lib//libamiga.a(DoMethod.o)
+                              CDChanger.o (DoMethod)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__dosbase.o)
+                              /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o (DOSBase)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__nocommandline.o)
+                              /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o (__nocommandline)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-calloc.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__nocommandline.o) (calloc)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-callocr.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-calloc.o) (_calloc_r)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-impure.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-calloc.o) (_impure_ptr)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-malloc.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__nocommandline.o) (malloc)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-memcpy.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-callocr.o) (memcpy)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-memset.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-callocr.o) (memset)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strcat.o)
+                              /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o (strcat)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strcpy.o)
+                              /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o (strcpy)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strlen.o)
+                              /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o (strlen)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strncat.o)
+                              CDChanger.o (strncat)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strncpy.o)
+                              CDChanger.o (strncpy)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strstr.o)
+                              /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o (strstr)
+/opt/amiga/m68k-amigaos/lib//libc.a(malloc.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-callocr.o) (_malloc_r)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__mulsi3.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-callocr.o) (__mulsi3)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-findfp.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-impure.o) (__sf_fake_stdin)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-fwalk.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-findfp.o) (_fwalk)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-memchr.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strstr.o) (memchr)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-memcmp.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strstr.o) (memcmp)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-stdio.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-findfp.o) (__sread)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strchr.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strstr.o) (strchr)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-writer.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-stdio.o) (_write_r)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-closer.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-stdio.o) (_close_r)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-fclose.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-findfp.o) (_fclose_r)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-fflush.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-fclose.o) (__sflush_r)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-lseekr.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-stdio.o) (_lseek_r)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-closer.o) (_close)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-readr.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-stdio.o) (_read_r)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-realloc.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o) (realloc)
+/opt/amiga/m68k-amigaos/lib//libc.a(lib_a-dummy.o)
+                              /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-lseekr.o) (_lseek)
+
+Allocating common symbols
+Common symbol       size              file
+
+__maxfh             0x4               /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o)
+mainWindow          0x4               CDChanger.o
+_WBenchMsg          0x4               /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+scsi_capabilities   0x1               scsi.o
+scsi_isRemovable    0x4               scsi.o
+gb_List             0xe               CDChanger.o
+scsi_apiVersion     0x1               scsi.o
+scsi_sense          0x4               scsi.o
+scsiPort            0x4               scsi.o
+scsi_data           0x4               scsi.o
+selectedNode        0x4               CDChanger.o
+AppPort             0x4               CDChanger.o
+io_ptr              0x4               scsi.o
+__commandlen        0x4               /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+scsi_dev            0x400             CDChanger.o
+__fh                0x4               /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o)
+SysBase             0x4               /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+scsi_isCD           0x4               scsi.o
+__commandline       0x4               /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+scsi_isZuluSCSI     0x4               scsi.o
+selectedDrive       0x100             CDChanger.o
+scsi_cmd            0x4               scsi.o
+errno               0x4               /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-writer.o)
+scsi_isBlueSCSI     0x4               scsi.o
+__argc              0x4               /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+
+Discarded input sections
+
+ .bss           0x0000000000000000        0x0 CDChanger.o
+ .rodata.ver    0x0000000000000000       0x20 CDChanger.o
+ .text.FreeListBrowserNodes
+                0x0000000000000000       0x38 CDChanger.o
+ .text.bstrcpy  0x0000000000000000       0x34 CDChanger.o
+ .text          0x0000000000000000        0x0 BlueSCSIlogo.o
+ .text          0x0000000000000000        0x0 ZuluSCSIlogo.o
+ .bss           0x0000000000000000        0x0 scsi.o
+ .text.DoScsiCmd
+                0x0000000000000000       0x74 scsi.o
+ .text.Toolbox_GetCapabilities
+                0x0000000000000000       0xbc scsi.o
+ .text.Toolbox_Download
+                0x0000000000000000      0x264 scsi.o
+ .bss           0x0000000000000000        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-findfp.o)
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+*default*        0x0000000000000000 0xffffffffffffffff
+
+Linker script and memory map
+
+LOAD /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+LOAD CDChanger.o
+LOAD /opt/amiga/m68k-amigaos/lib//libamiga.a
+LOAD BlueSCSIlogo.o
+LOAD ZuluSCSIlogo.o
+LOAD scsi.o
+LOAD common.o
+START GROUP
+LOAD /opt/amiga/m68k-amigaos/lib//libc.a
+LOAD /opt/amiga/m68k-amigaos/lib//libstubs.a
+LOAD /opt/amiga/m68k-amigaos/lib//libamiga.a
+LOAD /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/libgcc.a
+END GROUP
+                [!provide]                        PROVIDE (___machtype = 0x0)
+                0x0000000000000000                . = 0x0
+
+.text           0x0000000000000000     0x4188
+                0x0000000000000000                __stext = .
+ *(.text)
+ .text          0x0000000000000000      0x27c /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x0000000000000000                ____start
+                0x00000000000000c0                __exit
+                0x00000000000000c0                _exit
+                0x00000000000000c0                exit
+                0x0000000000000108                callfuncs
+                0x0000000000000168                __initlibraries
+                0x00000000000001fe                __exitlibraries
+                0x000000000000023e                __initcpp
+                0x0000000000000262                __exitcpp
+ .text          0x000000000000027c      0xa90 CDChanger.o
+                0x0000000000000402                main
+ .text          0x0000000000000d0c       0x1c /opt/amiga/m68k-amigaos/lib//libamiga.a(newobject.o)
+                0x0000000000000d0c                NewObject
+ .text          0x0000000000000d28       0x14 /opt/amiga/m68k-amigaos/lib//libamiga.a(NewList.o)
+                0x0000000000000d28                NewList
+ .text          0x0000000000000d3c       0x24 /opt/amiga/m68k-amigaos/lib//libamiga.a(DoMethod.o)
+                0x0000000000000d3c                DoMethod
+                0x0000000000000d42                DoMethodA
+ .text          0x0000000000000d60      0x104 scsi.o
+ .text          0x0000000000000e64        0x4 common.o
+ .text          0x0000000000000e68        0xc /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__dosbase.o)
+ .text          0x0000000000000e74      0x264 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__nocommandline.o)
+                0x0000000000000e74                __nocommandline
+                0x00000000000010a4                __exitcommandline
+ .text          0x00000000000010d8       0x1c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-calloc.o)
+                0x00000000000010d8                calloc
+ .text          0x00000000000010f4       0xac /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-callocr.o)
+                0x00000000000010f4                _calloc_r
+                0x0000000000001134                _realloc_r
+ .text          0x00000000000011a0        0x4 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-impure.o)
+                0x00000000000011a0                _global_impure_ptr
+ .text          0x00000000000011a4       0x28 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-malloc.o)
+                0x00000000000011a4                malloc
+                0x00000000000011b8                free
+ .text          0x00000000000011cc       0x70 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-memcpy.o)
+                0x00000000000011cc                memcpy
+ .text          0x000000000000123c       0x74 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-memset.o)
+                0x000000000000123c                memset
+ .text          0x00000000000012b0       0x4c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strcat.o)
+                0x00000000000012b0                strcat
+ .text          0x00000000000012fc       0x14 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strcpy.o)
+                0x00000000000012fc                strcpy
+ .text          0x0000000000001310       0x14 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strlen.o)
+                0x0000000000001310                strlen
+ .text          0x0000000000001324       0x64 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strncat.o)
+                0x0000000000001324                strncat
+ .text          0x0000000000001388       0x90 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strncpy.o)
+                0x0000000000001388                strncpy
+ .text          0x0000000000001418      0x630 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strstr.o)
+                0x00000000000017c6                strstr
+ .text          0x0000000000001a48      0xa98 /opt/amiga/m68k-amigaos/lib//libc.a(malloc.o)
+                0x0000000000001a48                Tree::Leaf::next()
+                0x0000000000001a8a                Tree::Leaf::prev()
+                0x0000000000001acc                Tree::drr(Tree::Leaf*, Tree::Leaf*)
+                0x0000000000001b4a                Tree::rr(Tree::Leaf*, Tree::Leaf*)
+                0x0000000000001b98                Tree::drl(Tree::Leaf*, Tree::Leaf*)
+                0x0000000000001c16                Tree::rl(Tree::Leaf*, Tree::Leaf*)
+                0x0000000000001c66                Tree::fixAdd(Tree::Leaf*)
+                0x0000000000001d64                Tree::fixRemove(Tree::Leaf*)
+                0x0000000000001ea6                __sys_free(char*)
+                0x0000000000001ebe                __sys_alloc(unsigned int)
+                0x0000000000001ee4                RawMem::alloc(unsigned int)
+                0x0000000000001ef8                MemMap::find(int)
+                0x0000000000001f2a                MemMap::unlink(MemMap::Leaf*)
+                0x0000000000001f4c                MemMap::put(MemMap::Leaf*)
+                0x0000000000001fb6                MemMap::alloc(unsigned int)
+                0x000000000000216c                MemMap::free(char*)
+                0x000000000000234c                _malloc_r
+                0x000000000000235a                _free_r
+                0x000000000000236e                __free_all
+ .text          0x00000000000024e0       0x2c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__mulsi3.o)
+                0x00000000000024e0                __mulsi3
+ .text          0x000000000000250c      0x4a0 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-findfp.o)
+                0x000000000000250c                __sf_fake_stdin
+                0x000000000000252c                __sf_fake_stdout
+                0x000000000000254c                __sf_fake_stderr
+                0x000000000000256c                __sfmoreglue
+                0x00000000000025c4                __sfp
+                0x0000000000002692                _cleanup_r
+                0x00000000000026a6                _cleanup
+                0x00000000000026bc                __sinit
+                0x00000000000026cc                __sfp_lock_acquire
+                0x00000000000026ce                __sfp_lock_release
+                0x00000000000026d0                __sinit_lock_acquire
+                0x00000000000026d2                __sinit_lock_release
+                0x00000000000026dc                __fp_lock_all
+                0x00000000000026f0                __fp_unlock_all
+ .text          0x00000000000029ac       0xcc /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-fwalk.o)
+                0x00000000000029ac                _fwalk
+                0x0000000000002a10                _fwalk_reent
+ .text          0x0000000000002a78       0xb4 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-memchr.o)
+                0x0000000000002a78                memchr
+ .text          0x0000000000002b2c       0x80 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-memcmp.o)
+                0x0000000000002b2c                memcmp
+ .text          0x0000000000002bac      0x110 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-stdio.o)
+                0x0000000000002bac                __sread
+                0x0000000000002be4                __seofread
+                0x0000000000002be8                __swrite
+                0x0000000000002c6a                __sseek
+                0x0000000000002caa                __sclose
+ .text          0x0000000000002cbc       0xe0 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-strchr.o)
+                0x0000000000002cbc                strchr
+ .text          0x0000000000002d9c       0x3c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-writer.o)
+                0x0000000000002d9c                _write_r
+ .text          0x0000000000002dd8       0x2c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-closer.o)
+                0x0000000000002dd8                _close_r
+ .text          0x0000000000002e04      0x134 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-fclose.o)
+                0x0000000000002e04                _fclose_r
+                0x0000000000002f24                fclose
+ .text          0x0000000000002f38      0x274 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-fflush.o)
+                0x0000000000002f38                __sflush_r
+                0x00000000000030f8                _fflush_r
+                0x0000000000003180                fflush
+ .text          0x00000000000031ac       0x3c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-lseekr.o)
+                0x00000000000031ac                _lseek_r
+ .text          0x00000000000031e8      0x29c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o)
+                0x00000000000031e8                _open
+                0x00000000000031e8                open
+                0x00000000000032d0                _close
+                0x00000000000032d0                close
+                0x0000000000003318                _write
+                0x0000000000003318                write
+                0x0000000000003360                _read
+                0x0000000000003360                read
+                0x00000000000033a8                __init_fh
+                0x00000000000033d4                __exit_fh
+                0x00000000000033ec                _isatty
+ .text          0x0000000000003484       0x3c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-readr.o)
+                0x0000000000003484                _read_r
+ .text          0x00000000000034c0       0x1c /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-realloc.o)
+                0x00000000000034c0                realloc
+ .text          0x00000000000034dc       0xc8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-dummy.o)
+                0x00000000000034dc                _kill
+                0x00000000000034de                _getpid
+                0x00000000000034f0                _lseek
+                0x000000000000357a                lseek
+                0x000000000000357e                _fstat
+                0x0000000000003582                _unlink
+                0x00000000000035a0                ioctl
+ *(.text.main)
+ *(.text*)
+ .text.putChToBuffer
+                0x00000000000035a4        0xc CDChanger.o
+ .text.AddListBrowserNode
+                0x00000000000035b0       0xec CDChanger.o
+                0x00000000000035b0                AddListBrowserNode
+ .text.DiskChange
+                0x000000000000369c      0x128 CDChanger.o
+                0x000000000000369c                DiskChange
+ .text.GetVolumeName
+                0x00000000000037c4      0x114 CDChanger.o
+                0x00000000000037c4                GetVolumeName
+ .text.putChToBuffer
+                0x00000000000038d8        0xc scsi.o
+ .text.scsi_setup
+                0x00000000000038e4      0x1a0 scsi.o
+                0x00000000000038e4                scsi_setup
+ .text.scsi_cleanup
+                0x0000000000003a84       0xb8 scsi.o
+                0x0000000000003a84                scsi_cleanup
+ .text.Toolbox_InitDevice
+                0x0000000000003b3c      0x224 scsi.o
+                0x0000000000003b3c                Toolbox_InitDevice
+ .text.Toolbox_Count_Files
+                0x0000000000003d60       0xc8 scsi.o
+                0x0000000000003d60                Toolbox_Count_Files
+ .text.Toolbox_List_Files
+                0x0000000000003e28      0x1d4 scsi.o
+                0x0000000000003e28                Toolbox_List_Files
+ .text.Toolbox_Set_Next_CD
+                0x0000000000003ffc       0xe8 scsi.o
+                0x0000000000003ffc                Toolbox_Set_Next_CD
+ .text.MessageBox
+                0x00000000000040e4       0x48 common.o
+                0x00000000000040e4                MessageBox
+ *(_*)
+ *(.rodata*)
+ *(.data.rel.ro*)
+ *(.gnu.linkonce.t.*)
+ *(.gnu.linkonce.r.*)
+ *(.gcc_except_table*)
+ *(SORT_BY_NAME(.list___EH_FRAME*))
+ *(SORT_BY_NAME(.list_*))
+ .list___CTOR_LIST__
+                0x000000000000412c        0x4 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x000000000000412c                __CTOR_LIST__
+ .list___DTOR_LIST__
+                0x0000000000004130        0x4 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x0000000000004130                __DTOR_LIST__
+ .list___EXIT_LIST__
+                0x0000000000004134       0x14 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x0000000000004134                __EXIT_LIST__
+ .list___EXIT_LIST__
+                0x0000000000004148        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__nocommandline.o)
+ .list___EXIT_LIST__
+                0x0000000000004150        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(malloc.o)
+ .list___EXIT_LIST__
+                0x0000000000004158        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o)
+ .list___INIT_LIST__
+                0x0000000000004160       0x14 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x0000000000004160                __INIT_LIST__
+ .list___INIT_LIST__
+                0x0000000000004174        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__nocommandline.o)
+ .list___INIT_LIST__
+                0x000000000000417c        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o)
+ *(.end_of_lists)
+ .end_of_lists  0x0000000000004184        0x4 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x0000000000004184                __ZZZ_LIST__
+                0x0000000000004188                ___datadata_relocs = .
+                0x0000000000004188                __etext = .
+                0x0000000000004188                ___text_size = SIZEOF (.text)
+                0x0000000000004188                . = ALIGN (0x0)
+
+.data           0x0000000000004188      0xebc
+                0x0000000000004188                __sdata = .
+ *(.data)
+ .data          0x0000000000004188        0x4 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+ .data          0x000000000000418c        0x0 /opt/amiga/m68k-amigaos/lib//libamiga.a(newobject.o)
+ .data          0x000000000000418c        0x0 /opt/amiga/m68k-amigaos/lib//libamiga.a(NewList.o)
+ .data          0x000000000000418c        0x0 /opt/amiga/m68k-amigaos/lib//libamiga.a(DoMethod.o)
+ .data          0x000000000000418c       0x10 scsi.o
+ .data          0x000000000000419c       0x14 common.o
+ .data          0x00000000000041b0       0xf4 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-impure.o)
+                0x00000000000042a0                _impure_ptr
+ *(SORT_BY_NAME(.data.*))
+ .data.appname  0x00000000000042a4        0x4 CDChanger.o
+ .data.bluescsi_logo_data
+                0x00000000000042a8      0x6a8 BlueSCSIlogo.o
+                0x00000000000042a8                bluescsi_logo_data
+ .data.gb_ListbrowserColumn
+                0x0000000000004950       0x20 CDChanger.o
+                0x0000000000004950                gb_ListbrowserColumn
+ .data.logo_image
+                0x0000000000004970       0x14 CDChanger.o
+                0x0000000000004970                logo_image
+ .data.readArgsTemplate
+                0x0000000000004984        0x4 CDChanger.o
+ .data.scsi_unit
+                0x0000000000004988        0x4 CDChanger.o
+                0x0000000000004988                scsi_unit
+ .data.zuluscsi_logo_data
+                0x000000000000498c      0x6a8 ZuluSCSIlogo.o
+                0x000000000000498c                zuluscsi_logo_data
+ *(SORT_BY_NAME(.dlist___EH_FRAME_OBJECT*))
+ *(SORT_BY_NAME(.dlist_*))
+ .dlist___LIB_LIST__
+                0x0000000000005034        0x4 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x0000000000005034                __LIB_LIST__
+ .dlist___LIB_LIST__
+                0x0000000000005038        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__dosbase.o)
+                0x0000000000005038                DOSBase
+ *(.end_of_dlists)
+ .end_of_dlists
+                0x0000000000005040        0x4 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x0000000000005040                __ZZZ_DLIST__
+ *(.data.__EH_FRAME_OBJECT__*)
+ *(.gnu.linkonce.d.*)
+                0x0000000000005044                __edata = .
+                0x0000000000000ebc                ___data_size = SIZEOF (.data)
+
+.bss            0x0000000000005044      0x5d0
+                0x0000000000005044                __bss_start = .
+ *(.bss)
+ .bss           0x0000000000005044       0x10 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x0000000000005044                __argv
+ .bss           0x0000000000005054        0x0 /opt/amiga/m68k-amigaos/lib//libamiga.a(newobject.o)
+ .bss           0x0000000000005054        0x0 /opt/amiga/m68k-amigaos/lib//libamiga.a(NewList.o)
+ .bss           0x0000000000005054        0x0 /opt/amiga/m68k-amigaos/lib//libamiga.a(DoMethod.o)
+ .bss           0x0000000000005054        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-__nocommandline.o)
+ .bss           0x000000000000505c       0x24 /opt/amiga/m68k-amigaos/lib//libc.a(malloc.o)
+ .bss           0x0000000000005080        0x4 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o)
+ *(.bss.*)
+ .bss.WindowBase
+                0x0000000000005084        0x4 CDChanger.o
+                0x0000000000005084                WindowBase
+ .bss.LayoutBase
+                0x0000000000005088        0x4 CDChanger.o
+                0x0000000000005088                LayoutBase
+ .bss.ListBrowserBase
+                0x000000000000508c        0x4 CDChanger.o
+                0x000000000000508c                ListBrowserBase
+ .bss.UtilityBase
+                0x0000000000005090        0x4 CDChanger.o
+                0x0000000000005090                UtilityBase
+ .bss.IconBase  0x0000000000005094        0x4 CDChanger.o
+                0x0000000000005094                IconBase
+ .bss.IntuitionBase
+                0x0000000000005098        0x4 CDChanger.o
+                0x0000000000005098                IntuitionBase
+ .bss.chip_logo_data
+                0x000000000000509c        0x4 CDChanger.o
+                0x000000000000509c                chip_logo_data
+ .bss.scsi_deviceOpened
+                0x00000000000050a0        0x4 scsi.o
+ .bss.files     0x00000000000050a4        0x4 scsi.o
+                0x00000000000050a4                files
+ .bss.filecount
+                0x00000000000050a8        0x4 scsi.o
+                0x00000000000050a8                filecount
+ *(COMMON)
+ COMMON         0x00000000000050ac       0x14 /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/../../../../m68k-amigaos/lib/crt0.o
+                0x00000000000050ac                _WBenchMsg
+                0x00000000000050b0                __commandlen
+                0x00000000000050b4                SysBase
+                0x00000000000050b8                __commandline
+                0x00000000000050bc                __argc
+ COMMON         0x00000000000050c0      0x51c CDChanger.o
+                0x00000000000050c0                mainWindow
+                0x00000000000050c4                gb_List
+                0x00000000000050d4                selectedNode
+                0x00000000000050d8                AppPort
+                0x00000000000050dc                scsi_dev
+                0x00000000000054dc                selectedDrive
+ COMMON         0x00000000000055dc       0x2c scsi.o
+                0x00000000000055dc                scsi_capabilities
+                0x00000000000055e0                scsi_isRemovable
+                0x00000000000055e4                scsi_apiVersion
+                0x00000000000055e8                scsi_sense
+                0x00000000000055ec                scsiPort
+                0x00000000000055f0                scsi_data
+                0x00000000000055f4                io_ptr
+                0x00000000000055f8                scsi_isCD
+                0x00000000000055fc                scsi_isZuluSCSI
+                0x0000000000005600                scsi_cmd
+                0x0000000000005604                scsi_isBlueSCSI
+ COMMON         0x0000000000005608        0x4 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-writer.o)
+                0x0000000000005608                errno
+ COMMON         0x000000000000560c        0x8 /opt/amiga/m68k-amigaos/lib//libc.a(lib_a-open.o)
+                0x000000000000560c                __maxfh
+                0x0000000000005610                __fh
+                0x0000000000005614                __end = .
+                0x00000000000005d0                ___bss_size = SIZEOF (.bss)
+
+.datachip
+ *(.datachip)
+
+.bsschip
+ *(.bsschip)
+
+.dwarf2         0x0000000000005614        0x0
+                0x0000000000005614                __debug_frame_start = .
+ *(.debug_frame)
+                0x0000000000005614                __debug_info_start = .
+ *(.debug_info)
+                0x0000000000005614                __debug_abbrev_start = .
+ *(.debug_abbrev)
+                0x0000000000005614                __debug_loclists_start = .
+ *(.debug_loclists)
+                0x0000000000005614                __debug_aranges_start = .
+ *(.debug_aranges)
+                0x0000000000005614                __debug_rgnlists_start = .
+ *(.debug_rnglists)
+                0x0000000000005614                __debug_line_start = .
+ *(.debug_line)
+                0x0000000000005614                __debug_str_start = .
+ *(.debug_str)
+                0x0000000000005614                __debug_line_str_start = .
+ *(.debug_line_str)
+OUTPUT(CDChanger_test amiga)
