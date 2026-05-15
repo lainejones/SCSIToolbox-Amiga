@@ -340,7 +340,7 @@ int main(int argc, char **argv)
       WINDOW_IconifyGadget, TRUE,
       WINDOW_IconTitle, appname,
       WINDOW_AppPort, AppPort,
-      WINDOW_Position, WPOS_CENTERMOUSE,
+      WINDOW_Position, WPOS_TOPLEFT,
       WINDOW_ParentGroup, VLayoutObject,
          LAYOUT_SpaceOuter, TRUE,
          LAYOUT_DeferLayout, TRUE,
