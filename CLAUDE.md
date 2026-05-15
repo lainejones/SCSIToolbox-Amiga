@@ -1,220 +1,303 @@
-# BlueSCSI Toolbox Amiga 1.3 — Build Notes
+# BlueSCSI Toolbox Amiga 1.3 — Build & Debug Notes
 
 ## Project Overview
 
 Cross-compiled AmigaOS 3.x GUI tools for BlueSCSI/ZuluSCSI SCSI emulators:
 - **CDChanger** — lists CD images on BlueSCSI, lets user switch the active image
 - **SDTransfer** — lists files in the BlueSCSI shared folder, downloads them to Amiga
+- **BlueSCSIToolbox** — CLI tool; `LISTCDS`, `SETCD N`, `DIR`, `RECEIVE`, etc.
 
-Target hardware: Amiga 1200, 68020, **AmigaOS 3.2.3** (Hyperion 68k branch — NOT AmigaOS 4.x which is PowerPC).
+Target hardware: Amiga 1200, 68020, **AmigaOS 3.2.3** (Hyperion 68k branch — NOT AmigaOS 4.x).
 
 SCSI device: **ExpXDS.device** (Dataflyer SCSI adapter for A1200), **unit 2** (BlueSCSI).
-
-A pre-compiled v1.3 binary from the original author works correctly on this hardware.
 
 ---
 
 ## Toolchain
 
-- Cross-compiler: `/opt/amiga/bin/m68k-amigaos-gcc`
-- NDK headers: `/opt/amiga/m68k-amigaos/ndk-include/`
-- NDK version: **47.x** — this IS the correct SDK for AmigaOS 3.2.3 (Hyperion maintains
-  both the 68k 3.x branch and PPC 4.x branch; version 47 refers to exec.library version,
-  not OS generation)
-- Build: `make 68020` from `src/`
+```powershell
+# Must set PATH first in PowerShell every session:
+$env:PATH = "C:\amiga-gcc\bin;" + $env:PATH
 
-Key CFLAGS: `-DNO_INLINE_STDARG -D__NOLIBBASE__ -O3 -std=c99 -m68020 -ffunction-sections -fdata-sections`
+# Build from src/ directory:
+C:\amiga-gcc\bin\_make.exe SHELL="C:\amiga-gcc\bin\sh.exe"          # 68000 (default)
+C:\amiga-gcc\bin\_make.exe SHELL="C:\amiga-gcc\bin\sh.exe" 68020    # 68020/030
+```
 
----
+- Cross-compiler: `C:\amiga-gcc\bin\m68k-amigaos-gcc` (version 6.5.0b)
+- NDK headers: `D:\Amiga\Include_H` (NDK 47.x — correct for AmigaOS 3.2.3)
+- Key CFLAGS: `-DNO_INLINE_STDARG -O2 -std=c99 -m68000 -ffunction-sections -fdata-sections`
+- Key LFLAGS: `-lamiga -Wl,--gc-sections -s`
 
-## Confirmed Struct Layout (compiler-verified)
-
-Computed by compiling an offsetof test with the actual cross-compiler:
-
-| Field | Offset |
-|---|---|
-| `sizeof(struct Task)` | **92** bytes |
-| `sizeof(struct MsgPort)` | **34** bytes |
-| `offsetof(struct Process, pr_ReturnAddr)` | **176** (0xB0) |
-| `offsetof(struct Process, pr_PktWait)` | **180** (0xB4) |
-| `offsetof(struct Process, pr_WindowPtr)` | **184** (0xB8) |
-
-The NDK 47.x struct Task is IDENTICAL to the classic AmigaOS 3.x layout (92 bytes,
-same fields, no extensions). The struct layouts match the 3.2.3 runtime.
+**Note:** `make` is not in PATH by default under Windows — always call `_make.exe` directly.
 
 ---
 
-## Problem 1: window.library auto-open crash — FIXED
+## AmigaOS Version Notes
 
-**Symptom:** Program printed "window.library failed to load" and crashed before `main()`.
-
-**Cause:** `libstubs.a` in NDK 47.x has an auto-open constructor that tries to open
-`window.library` (an AmigaOS 4.x GUI class). This library does not exist on OS 3.x.
-
-**Fix:** Added `-D__NOLIBBASE__` to CFLAGS. This suppresses libstubs.a auto-open
-constructors. Requires:
-1. `toolbox.h` included FIRST in every source file (provides mandatory externs)
-2. All `*Base` globals defined with `= NULL` initializer (makes them STRONG symbols,
-   preventing libstubs.a from pulling in its STRONG definitions):
-   ```c
-   struct Library *WindowBase = NULL, *LayoutBase = NULL, ...
-   struct Library *UtilityBase = NULL, *IntuitionBase = NULL, ...
-   ```
-   Without `= NULL`, globals are COMMON symbols and the linker picks libstubs.a's
-   STRONG definition, which includes the broken auto-open constructor.
+- AmigaOS 3.2.3 = latest Hyperion 68k branch
+- NDK 47.x covers both 3.x and 4.x — it IS correct for 3.2.3 development
+- Struct layouts in NDK 47.x match AmigaOS 3.2.3 runtime exactly
 
 ---
 
-## Problem 2: CloseDevice crash on failed OpenDevice — FIXED
+## Fixed Problems
 
-**Symptom:** Pressing any button in the volume requester caused "Software Failure
-error #80000003".
+### Fix 1 — window.library auto-open crash
 
-**Cause:** When the user pressed Cancel/Deny in the volume requester, `OpenDevice()`
-returned failure. The program called `scsi_cleanup()`, which called `CloseDevice()` on
-`io_ptr` even though the device was never successfully opened.
+**Symptom:** Crashed before `main()` with "window.library failed to load".
 
-The Dataflyer ExpXDS.device sets `io_ptr->io_Device` (non-NULL) even when `Open()`
-fails — non-standard driver behaviour. Checking `io_ptr->io_Device != NULL` was not
-sufficient because the Dataflyer sets it regardless.
+**Cause:** `libstubs.a` constructor tries to open `window.class` (AmigaOS 4.x only).
 
-**Fix:** Added `static int scsi_deviceOpened = 0` flag in `scsi.c`. Set to `1` only
-when `OpenDevice()` returns 0 (success). `scsi_cleanup()` calls `CloseDevice()` only
-when `scsi_deviceOpened == 1`.
+**Fix:** `-DNO_INLINE_STDARG` in CFLAGS + all `*Base` globals declared with `= NULL`
+initializer (makes them STRONG symbols, preventing libstubs.a from inserting its own
+STRONG auto-open definition):
 
 ```c
-// In scsi_setup():
-if (OpenDevice(...) != 0) return -1;
-scsi_deviceOpened = 1;          // ← only set on success
-
-// In scsi_cleanup():
-if (io_ptr) {
-    if (scsi_deviceOpened) {
-        CloseDevice((struct IORequest *)io_ptr);
-        scsi_deviceOpened = 0;
-    }
-    DeleteIORequest(io_ptr);
-}
+struct Library *WindowBase = NULL, *LayoutBase = NULL, *ListBrowserBase = NULL;
+struct Library *UtilityBase = NULL, *IconBase = NULL;
+struct IntuitionBase *IntuitionBase = NULL;
 ```
 
 ---
 
-## Problem 3: Volume requester appearing — UNSOLVED
+### Fix 2 — CloseDevice crash on failed OpenDevice
 
-**Symptom:** When CDChanger/SDTransfer run, an AmigaDOS requester appears:
-"Please insert volume [NsH*****\n0a:] in any drive"
-Buttons: **Retry**, Assign, Deny, Cancel.
+**Symptom:** "Software Failure #80000003" when pressing Cancel on volume requester.
 
-**What the volume name means:** The garbled name (with embedded newline 0x0A) is the
-AmigaDOS partition label stored in the Dataflyer's RDB (Rigid Disk Block) for unit 2.
-It is NOT in our code. It was set when the SCSI hardware was originally configured.
+**Cause:** `scsi_cleanup()` called `CloseDevice()` on `io_ptr` even when `OpenDevice()`
+had failed. The Dataflyer ExpXDS.device sets `io_ptr->io_Device` non-NULL even on
+failure, so checking `io_ptr->io_Device != NULL` is insufficient.
 
-**Why it appears:** The Amiga has an AmigaDOS filesystem handler process running for
-ExpXDS.device unit 2. When our program opens the raw SCSI device, something triggers
-the filesystem handler to check for its volume. It can't find/match it and shows the
-requester.
-
-**Why the pre-compiled v1.3 binary doesn't show it:** Unknown. The v1.3 binary likely
-had a working suppression mechanism, or was compiled with different flags that avoid
-triggering the filesystem handler.
-
-### Suppression attempts — all failed or caused crashes
-
-**Setting `pr_WindowPtr = -1` for our own process only:**
-- Tried in `scsi_setup()` before `OpenDevice()` — requester still appeared
-- Tried at start of `main()` before `OpenLibrary()` — requester still appeared (and
-  later version crashed, possibly unrelated)
-- Conclusion: requester does NOT come from our process context. It comes from the
-  filesystem handler's own process context. Our `pr_WindowPtr` has no effect on it.
-
-**Walking exec task lists with `Forbid()` to suppress ALL process `pr_WindowPtr`:**
-- Walked `SysBase->TaskReady` and `SysBase->TaskWait`, set `pr_WindowPtr = -1` for
-  every `NT_PROCESS` task
-- **CRASHED to black screen (CPU exception, hard lockup)**
-- Root cause unknown — writing to foreign process structures under `Forbid()` hit
-  something fatal. Do NOT attempt this approach again.
-
-**Inline asm writing to offset 184 of foreign processes:**
-- Earlier attempts in previous session also caused black screen crashes
-- Pattern: writing to `pr_WindowPtr` of ANY process other than our own causes hard
-  lockups. Only safe to write to our own process.
-
-**`LockDosList` / `NextDosEntry`:**
-- NOT available in the NDK 47.x inline/dos.h headers. Cannot use this approach.
-
-**`Inhibit(name, TRUE)`:**
-- IS available in inline/dos.h
-- Requires knowing the AmigaDOS device name (e.g. "CD0:") for unit 2
-- User does not know their device name. The requester shows the VOLUME name, not the
-  device name.
-- Could be added as an optional CLI parameter if user finds their device name.
-
-### Current behaviour (latest build)
-
-- Requester appears
-- **Retry**: AmigaDOS retries finding the volume. If BlueSCSI has a CD image mounted,
-  it may succeed → `OpenDevice` succeeds → CDChanger should open. **Try this.**
-- **Deny/Cancel**: `OpenDevice` fails → `scsi_setup` returns -1 → program exits
-  cleanly (no crash, thanks to `scsi_deviceOpened` fix)
+**Fix:** `static int scsi_deviceOpened = 0` flag in `scsi.c`. Set to 1 only on
+successful `OpenDevice()`. `scsi_cleanup()` guards `CloseDevice()` with this flag.
 
 ---
 
-## What CRASHES the system (do not attempt)
+### Fix 3 — Volume requester on startup
 
-1. **Writing `pr_WindowPtr` to any process other than our own** — always produces
-   hard lockup / black screen requiring power cycle. Mechanism unknown but repeatable.
-2. **`Forbid()` + task list walk + write to foreign process** — same hard lockup.
-3. **C struct `->pr_WindowPtr` on FindTask result of foreign process** — same.
-4. **Inline asm writing to hardcoded offset 184 of foreign process pointer** — same.
+**Symptom:** "Please insert volume [NsH*****\n0a:] in any drive" requester appeared
+when CDChanger/SDTransfer launched.
 
-Only safe: `((struct Process *)FindTask(NULL))->pr_WindowPtr = (APTR)-1L` on our OWN
-process. But this alone does not suppress the requester (different process context).
+**Fix:** `myproc->pr_WindowPtr = (APTR)-1L` at the very start of `main()`, before any
+DOS activity:
+
+```c
+struct Process *myproc = (struct Process *)FindTask(NULL);
+myproc->pr_WindowPtr = (APTR)-1L;
+```
+
+**IMPORTANT — what CRASHES the system (do not attempt again):**
+- Writing `pr_WindowPtr` to ANY process other than our own → hard lockup / black screen
+- `Forbid()` + task list walk + write to foreign process → same hard lockup
+- `LockDosList` is NOT available in this NDK's inline headers
 
 ---
 
-## Current State of Source Files
+### Fix 4 — ListBrowser `#` column showing "0" for all rows
+
+**Symptom:** The `#` column displayed "0" on every row instead of 1, 2, 3…
+
+**Root cause — `LBNCA_Integer` tag semantics:**
+`LBNCA_Integer` takes a `LONG *` pointer, NOT an integer value. Without
+`LBNCA_CopyInteger=TRUE`, the listbrowser stores the pointer and dereferences it at
+render time — passing a value directly causes it to read from low memory
+(exception vectors), producing garbage (8, 2048, 524297…).
+`LBNCA_CopyInteger=TRUE` proved unreliable too — reads stale stack values at scroll.
+**Do not use `LBNCA_Integer`.**
+
+**Root cause — `Strncpy` overflow into adjacent struct field:**
+AmigaOS `Strncpy(dest, src, n)` writes up to n+1 bytes (including null terminator).
+`file->Name[32+1]` is immediately followed by `file->Number[5+1]` in the struct.
+`Strncpy(file->Name, ..., 32)` could overwrite `file->Number[0]`, corrupting it.
+
+**Fix:** Use a static array of compiled-in string literals for the `#` column. These
+pointers are valid for the entire program lifetime so no `LBNCA_CopyText` is needed:
+
+```c
+static const char * const g_nums[64] = {
+    "1",  "2",  "3",  "4",  "5",  "6",  "7",  "8",
+    "9",  "10", "11", "12", "13", "14", "15", "16",
+    /* ... up to "64" */
+};
+```
+
+Also moved `sprintf(file->Number, "%d", f+1)` to AFTER `Strncpy` in `scsi.c` so the
+overflow (if any) happens before Number is written.
+
+---
+
+### Fix 5 — Wrong CD selected for positions 10 and above
+
+**Symptom:** Selecting disc #10 unmounted the disc; #12 mounted disc #3's image.
+
+**Root cause A — rogue `WMHI_GADGETDOWN` handler:**
+A `WMHI_GADGETDOWN` case was added that called `Toolbox_Set_Next_CD` immediately on
+any gadget click. At `GADGETDOWN` time, `LISTBROWSER_SelectedNode` still holds the
+*previously* selected node, not the one just clicked. This sent the wrong disc index,
+especially when the list had scrolled. The original CDChanger had no `WMHI_GADGETDOWN`
+handler. **Removed.**
+
+**Root cause B — alphabetical sort breaking device index mapping:**
+The device returns CD images in write-timestamp (directory) order and `c[0]`
+(`file->Index`) is the sequential 0-based position in that order. After an alphabetical
+`qsort`, the display position no longer matched `file->Index`: display #12 sent
+`file->Index = 2` (device position 2 = 3rd disc in timestamp order) → mounted disc 3.
+
+**Fix:** Remove the `qsort`. Display ISOs in the order the device returns them.
+`file->Index` is then always correct for `SET_NEXT_CD`.
+
+**Note:** `BlueSCSIToolbox LISTCDS` and `SETCD` sort alphabetically internally, which
+means their display numbers do NOT match CDChanger's display numbers (or the device
+order). This is a pre-existing issue in BlueSCSIToolbox that is not ours to fix.
+
+---
+
+### Fix 6 — Window opening at bottom of Workbench
+
+**Symptom:** Window opened wherever the mouse cursor happened to be (bottom of screen
+if mouse was there).
+
+**Fix:** `WINDOW_Position, WPOS_TOPLEFT` instead of `WPOS_CENTERMOUSE`.
+
+---
+
+### Fix 7 — CDChanger window too large
+
+**Symptom:** CDChanger window opened at 400×350 instead of original 250×250.
+
+**Fix:** `WA_Width, 250` and `WA_Height, 250`.
+
+---
+
+### Fix 8 — SDTransfer binary 61 KB (vs 22 KB for others)
+
+**Symptom:** SDTransfer was ~3× larger than CDChanger and BlueSCSIToolbox.
+
+**Cause:** A single `snprintf()` call pulled in newlib's full floating-point printf
+machinery even though no float format specifiers were used:
+- `__svfprintf_r` — 9,460 bytes
+- `__dtoa_r` — 4,880 bytes
+- Locale/wide-char tables (`___loadlocale`, `___utf8_mbtowc`, etc.) — ~14 KB total
+
+`sprintf()` uses the lighter integer-only `__svfiprintf_r` (4,366 bytes) when no float
+formats are present.
+
+**Fix:** Replace `snprintf(buf, size, ...)` with `sprintf(buf, ...)`. Verify the buffer
+is large enough manually. Result: 61 KB → 22 KB.
+
+**Rule:** Never use `snprintf`/`printf` if `sprintf`/`Printf` will do — on this
+toolchain `snprintf` always links the full float printf engine.
+
+---
+
+### Fix 9 — SDTransfer Workbench startup didn't read tooltypes reliably
+
+**Cause:** Used `(struct WBStartup *)argv` (SAS/C convention) but GCC toolchain passes
+the WBStartup pointer in `argv[0]`. Also missing `CurrentDir(wbarg->wa_Lock)` before
+`GetDiskObject`, causing icon file not found in some directory contexts.
+
+**Fix:** Match CDChanger's pattern:
+
+```c
+struct WBStartup *WBenchMsg = (struct WBStartup *)argv[0];  // GCC toolchain
+/* ... */
+BPTR oldlock = CurrentDir(wbarg->wa_Lock);
+dobj = GetDiskObject(wbarg->wa_Name);
+CurrentDir(oldlock);
+```
+
+---
+
+## ListBrowser Tag Reference (AmigaOS 3.2.3 ReAction)
+
+Compile with `-DNO_INLINE_STDARG` to force `AllocListBrowserNodeA` (TagItem array)
+instead of the varargs macro `AllocListBrowserNode`.
+
+| Tag | Notes |
+|---|---|
+| `LBNA_Column, N` | Opens column N context for subsequent LBNCA_ tags |
+| `LBNCA_Text, (ULONG)ptr` | Pointer to string. Without CopyText, must stay valid for program lifetime. |
+| `LBNCA_CopyText, TRUE` | Copies string into node's internal buffer. Safe for stack/temp strings. |
+| `LBNCA_MaxChars, N` | Buffer size for CopyText. |
+| `LBNCA_Integer, (ULONG)longptr` | Takes a `LONG *`, NOT a value. Dereferences at render time. Unreliable — avoid. |
+| `LBNCA_CopyInteger, TRUE` | Supposed to copy at node creation, but proved unreliable. Avoid. |
+| `LBNCA_Justification, LCJ_LEFT` | Left-align text in column. |
+| `LBNA_UserData, (ULONG)value` | Store arbitrary value per node. Place inside a `LBNA_Column` context block. |
+| `LBNA_Generation, 2` | Required for proper node versioning. |
+
+**Retrieving UserData:**
+```c
+ULONG userdata = 0;
+struct TagItem gtags[] = {
+    {LBNA_Column,   0},
+    {LBNA_UserData, (ULONG)&userdata},
+    {TAG_DONE,      0}
+};
+GetListBrowserNodeAttrsA(node, gtags);
+```
+
+**Retrieving Text pointer:**
+```c
+ULONG textptr = 0;
+struct TagItem gtags[] = {
+    {LBNA_Column,  0},
+    {LBNCA_Text,   (ULONG)&textptr},
+    {TAG_DONE,     0}
+};
+GetListBrowserNodeAttrsA(node, gtags);
+char *text = (char *)textptr;
+```
+
+---
+
+## BlueSCSI SCSI Toolbox Protocol
+
+All commands are 10-byte vendor-specific CDBs. Data buffer: 4096 bytes (`MAX_DATA_LEN`).
+
+| Command | CDB[0] | Notes |
+|---|---|---|
+| `LIST_FILES` | `0xD0` | Returns file entries from Shared/ folder |
+| `GET_FILE` | `0xD1` | CDB[1]=index, CDB[2-5]=page offset. Returns 4096-byte pages. |
+| `COUNT_FILES` | `0xD2` | Returns 1 byte: file count |
+| `LIST_CDS` | `0xD7` | Returns CD image entries in write-timestamp order |
+| `SET_NEXT_CD` | `0xD8` | CDB[1]=index. Selects next CD image to mount. |
+| `METADATA` | `0xD9` | CDB[1]=subcommand: 0x00=list devices, 0x01=get capabilities |
+| `COUNT_CDS` | `0xDA` | Returns 1 byte: CD count |
+
+**Entry format** (40 bytes each):
+- `[0]` — device-internal index (send this to `SET_NEXT_CD`)
+- `[1]` — type: 1=file, 0=directory
+- `[2..33]` — filename (32 bytes, null-terminated)
+- `[36..39]` — file size (big-endian ULONG)
+
+**CD ordering:** Device returns CDs in write-timestamp (directory) order, NOT
+alphabetical. The index in `c[0]` is the sequential position in that order.
+Do NOT sort the list — sorting breaks the `c[0]` → `SET_NEXT_CD` mapping.
+
+---
+
+## Current Source File State
 
 ### `src/scsi.c`
-- `static int scsi_deviceOpened = 0` — guards CloseDevice
-- `scsi_setup()`: sets `scsi_deviceOpened = 1` after successful `OpenDevice()`
-- `scsi_cleanup()`: uses `scsi_deviceOpened` flag before calling `CloseDevice()`
-- No `suppress_dos_requester` code (removed — was causing crashes or doing nothing)
+- `static int scsi_deviceOpened = 0` guards `CloseDevice`
+- `extern int filecount` exported via `toolbox.h`
+- `sprintf(file->Number, ...)` written AFTER `Strncpy` to avoid overflow corruption
+- No sorting in `Toolbox_List_Files` — caller must not sort either
 
-### `src/CDChanger.c` / `src/SDTransfer.c`
-- All `*Base` globals have `= NULL` initializers
-- `char scsi_msg[128]` (increased from 50 to prevent overflow)
-- No `suppress_dos_requester` calls
+### `src/CDChanger.c`
+- `static const char * const g_nums[64]` for # column (compiled-in literals)
+- `static int g_numcount` tracks display position
+- No `WMHI_GADGETDOWN` handler — disc changes only on explicit Select button press
+- No `qsort` — ISOs displayed in device (timestamp) order
+- `WINDOW_Position, WPOS_TOPLEFT` — opens at top-left
+- `WA_Width, 250` / `WA_Height, 250`
+
+### `src/SDTransfer.c`
+- Uses `sprintf` not `snprintf` — avoids 38 KB of float printf bloat
+- `WINDOW_Position, WPOS_TOPLEFT`
+- Workbench startup uses `argv[0]` for WBStartup pointer + `CurrentDir` before `GetDiskObject`
 
 ### `src/toolbox.h`
-- `-D__NOLIBBASE__` extern declarations for SysBase, DOSBase, IntuitionBase, UtilityBase
-- Must be the FIRST include in every source file
-
----
-
-## Next Steps to Try
-
-1. **Test Retry button**: With `scsi_deviceOpened` fix in place, pressing Retry should
-   be safe. If BlueSCSI has a CD image, AmigaDOS should find it and CDChanger should
-   open. Report whether CDChanger window appears.
-
-2. **If Retry works but requester is annoying**: Add optional `INHIBIT/K` CLI parameter
-   to CDChanger/SDTransfer. User specifies their AmigaDOS CD device name (find it via
-   `List DEVS:DosDrivers/` or HDToolBox). Program calls `Inhibit(name, TRUE)` before
-   `scsi_setup()` and `Inhibit(name, FALSE)` at cleanup.
-
-3. **If Retry doesn't work**: Investigate whether `OpenDevice` itself has issues
-   independent of the requester. Try without a CD image loaded to see if OpenDevice
-   succeeds when there's no media (and thus no volume mismatch).
-
-4. **If program crashes after requester**: Report exactly WHEN the crash happens
-   (before requester / after pressing Retry / after CDChanger window appears). This
-   narrows down which part of the code is crashing.
-
----
-
-## Notes on AmigaOS Version
-
-- AmigaOS 3.2.3 = latest Hyperion 68k branch (newer by release date than 4.0)
-- AmigaOS 4.x = PowerPC only (different hardware, different branch)
-- NDK 47.x covers BOTH branches — it IS correct for 3.2.3 development
-- struct layouts in NDK 47.x headers match AmigaOS 3.2.3 runtime exactly
+- `extern int filecount` declaration
+- `struct FileEntry`: `Name[32+1]`, `Number[5+1]` — note adjacency, Strncpy can overflow
