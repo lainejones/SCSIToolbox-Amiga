@@ -427,7 +427,7 @@ int main(int argc, char **argv)
                                     char size_text[32];
 
                                     format_size(size_text, sizeof(size_text), bytes);
-                                    snprintf(fuelGaugeText, sizeof(fuelGaugeText), "%s bytes saved to %s", size_text, destination);
+                                    sprintf(fuelGaugeText, "%s bytes saved to %s", size_text, destination);
                                     SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
                                                    GA_Text, fuelGaugeText,
                                                    FUELGAUGE_Percent, FALSE,
