@@ -166,46 +166,47 @@ int main(int argc, char **argv)
    if (argc==0)
    {
       // Started from Workbench. Read tooltypes
-      if ((IconBase = OpenLibrary("icon.library", 33)) != NULL)
+      IconBase = OpenLibrary("icon.library", 33L);
+      if (IconBase != NULL && argv != NULL && argv[0] != NULL)
       {
-         struct WBStartup *WBenchMsg = (struct WBStartup *)argv;
-         struct WBArg *wbarg;
          LONG i;
+         struct WBStartup *WBenchMsg = (struct WBStartup *)argv[0];
+         struct WBArg *wbarg;
 
-         wbarg = WBenchMsg->sm_ArgList;
-         for(i=0; i < WBenchMsg->sm_NumArgs; i++, wbarg++)
+         if (WBenchMsg->sm_ArgList != NULL)
          {
-            struct DiskObject *dobj;
-            char *s;
-            if((*wbarg->wa_Name) && (dobj=GetDiskObject(wbarg->wa_Name)))
+            wbarg = WBenchMsg->sm_ArgList;
+            for (i = 0; i < WBenchMsg->sm_NumArgs; i++, wbarg++)
             {
-               STRPTR *toolarray = (STRPTR *)dobj->do_ToolTypes;
+               struct DiskObject *dobj;
+               STRPTR s;
 
-               if(s=(STRPTR)FindToolType(toolarray,"DEVICE"))
+               if (wbarg->wa_Name != NULL && wbarg->wa_Name[0] != '\0')
                {
-                  strncpy(scsi_dev, s, sizeof(scsi_dev));
+                  BPTR oldlock = CurrentDir(wbarg->wa_Lock);
+                  dobj = GetDiskObject(wbarg->wa_Name);
+                  CurrentDir(oldlock);
+
+                  if (dobj)
+                  {
+                     STRPTR *toolarray = (STRPTR *)dobj->do_ToolTypes;
+                     s = (STRPTR)FindToolType(toolarray, "DEVICE");
+                     if (s != NULL)
+                        strncpy((char *)scsi_dev, (char *)s, sizeof(scsi_dev));
+                     s = (STRPTR)FindToolType(toolarray, "UNIT");
+                     if (s != NULL)
+                        StrToLong(s, &scsi_unit);
+                     FreeDiskObject(dobj);
+                     break;
+                  }
                }
-               if(s=(STRPTR)FindToolType(toolarray,"UNIT"))
-               {
-                  StrToLong(s, &scsi_unit);
-               }
-               FreeDiskObject(dobj);
-               break;
             }
          }
       }
 
       if (scsi_dev[0] == '\0' || scsi_unit < 0)
       {
-         if (argc==0)
-         {
-            MessageBox(appname, "Missing SCSI device or unit");
-         }
-         else
-         {
-            // CLI
-            PrintFault(ERROR_REQUIRED_ARG_MISSING, argv[0]);
-         }
+         MessageBox(appname, "Missing SCSI device or unit");
          goto exit;
       }
    }
@@ -287,7 +288,7 @@ int main(int argc, char **argv)
       WINDOW_IconifyGadget, TRUE,
       WINDOW_IconTitle, appname,
       WINDOW_AppPort, AppPort,
-      WINDOW_Position, WPOS_CENTERMOUSE,
+      WINDOW_Position, WPOS_TOPLEFT,
       WINDOW_ParentGroup, VLayoutObject,
          LAYOUT_SpaceOuter, TRUE,
          LAYOUT_DeferLayout, TRUE,
