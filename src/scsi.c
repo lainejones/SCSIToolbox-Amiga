@@ -317,9 +317,10 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
             file->Index = c[0];
             file->Type = c[1];    // 0=dir 1=file
 
-            sprintf(file->Number, "%d", f+1);
             Strncpy(file->Name, (char *)&c[2], MAX_MAC_PATH);
             file->Name[MAX_MAC_PATH] = '\0';
+            /* Write Number AFTER Strncpy in case it overflows one byte into Number[0] */
+            sprintf(file->Number, "%d", f+1);
 
             file->Size = Toolbox_ParseEntrySize(c);
             file++;

@@ -53,6 +53,7 @@
 #define BLUESCSI_DIR 0
 
 // scsi.c
+extern int filecount;
 struct FileEntry *Toolbox_List_Files(int cdrom);
 void Toolbox_Set_Next_CD(UBYTE index);
 void scsi_cleanup(void);

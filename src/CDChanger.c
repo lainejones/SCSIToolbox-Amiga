@@ -16,7 +16,6 @@
  */
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/icon.h>
@@ -45,7 +44,7 @@ static const char ver[] = "$VER: CDChanger 1.2 (18.5.2024)";
 void GetVolumeName(void);
 void DiskChange(void);
 void FreeListBrowserNodes(void);
-BOOL AddListBrowserNode(ULONG num, STRPTR number, STRPTR text);
+BOOL AddListBrowserNode(ULONG index, STRPTR number, STRPTR text);
 void bstrcpy(char *dest, UBYTE *src);
 
 struct Library *WindowBase = NULL, *LayoutBase = NULL, *LabelBase = NULL, *ListBrowserBase = NULL;
@@ -66,6 +65,17 @@ enum Gadgets
 };
 
 struct List gb_List;
+static const char * const g_nums[64] = {
+    "1",  "2",  "3",  "4",  "5",  "6",  "7",  "8",
+    "9",  "10", "11", "12", "13", "14", "15", "16",
+    "17", "18", "19", "20", "21", "22", "23", "24",
+    "25", "26", "27", "28", "29", "30", "31", "32",
+    "33", "34", "35", "36", "37", "38", "39", "40",
+    "41", "42", "43", "44", "45", "46", "47", "48",
+    "49", "50", "51", "52", "53", "54", "55", "56",
+    "57", "58", "59", "60", "61", "62", "63", "64"
+};
+static int  g_numcount = 0;
 struct ColumnInfo gb_ListbrowserColumn[] =
 {
    {  30, "#", 0 },
@@ -296,11 +306,14 @@ int main(int argc, char **argv)
    if (files)
    {
       struct FileEntry *file = files;
+
+      g_numcount = 0;
       while (file->Type >= 0)
       {
-         if (file->Type == 1)
+         if (file->Type == 1 && g_numcount < 64)
          {
-            AddListBrowserNode(file->Index, file->Number, file->Name);
+            AddListBrowserNode(file->Index, (STRPTR)g_nums[g_numcount], file->Name);
+            g_numcount++;
          }
          file++;
       }
@@ -445,23 +458,6 @@ int main(int argc, char **argv)
                      done = TRUE;
                   }
                   break;
-               case WMHI_GADGETDOWN:
-                  {
-                     GetAttr(LISTBROWSER_SelectedNode, listBrowser, (ULONG*) &node);
-                     if (node)
-                     {
-                        ULONG userdata = 0;
-                        struct TagItem gtags[] = {
-                           {LBNA_Column,   0},
-                           {LBNA_UserData, (ULONG)&userdata},
-                           {TAG_DONE,      0}
-                        };
-                        GetListBrowserNodeAttrsA(node, gtags);
-                        Toolbox_Set_Next_CD((UBYTE) userdata);
-                        DiskChange();
-                     }
-                  }
-                  break;
                default:
                   break;
             }
@@ -535,19 +531,18 @@ BOOL AddListBrowserNode(ULONG index, STRPTR number, STRPTR text)
    struct TagItem tags[] = {
        {LBNA_Generation,    2},
        {LBNA_Column,        0},
-       {LBNCA_Text,         (ULONG)number},
+       {LBNCA_Text,         (ULONG)number},   /* pointer into g_numstrs[], lives forever */
        {LBNCA_Justification,LCJ_LEFT},
-       {LBNCA_CopyText,     TRUE},
-       {LBNCA_MaxChars,     10},
        {LBNA_UserData,      (ULONG)index},
        {LBNA_Column,        1},
-       {LBNCA_Text,         (ULONG)(STRPTR)text},
+       {LBNCA_Text,         (ULONG)text},
        {LBNCA_Justification,LCJ_LEFT},
        {LBNCA_CopyText,     TRUE},
        {LBNCA_MaxChars,     100},
+       {LBNA_UserData,      (ULONG)index},
        {TAG_END,            0}
    };
-   
+
    if ((node = AllocListBrowserNodeA(2, tags)))
    {
       AddTail(&gb_List, node);
