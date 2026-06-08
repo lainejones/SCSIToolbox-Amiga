@@ -19,7 +19,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-#include <stdio.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/utility.h>
@@ -58,6 +57,23 @@ static ULONG Toolbox_ParseEntrySize(const UBYTE *entry)
       | ((ULONG)entry[37] << 16)
       | ((ULONG)entry[38] << 8)
       | (ULONG)entry[39];
+}
+
+/* Minimal unsigned-decimal formatter. Replaces sprintf so scsi.o stays libc-free
+   and links into the -nostartfiles SHARED: handler. */
+static void numToStr(char *buf, ULONG n)
+{
+   char tmp[12];
+   int i = 0, j = 0;
+   if (n == 0)
+   {
+      buf[0] = '0';
+      buf[1] = '\0';
+      return;
+   }
+   while (n > 0) { tmp[i++] = (char)('0' + (n % 10)); n /= 10; }
+   while (i > 0) buf[j++] = tmp[--i];
+   buf[j] = '\0';
 }
 
 /* Setup the SCSI device */
@@ -274,7 +290,7 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
       file->Index = f;
       file->Type = BLUESCSI_FILE;
       file->Size = 4096*20000;
-      sprintf(file->Number, "%d", f+1);
+      numToStr(file->Number, (ULONG)(f+1));
       Strncpy(file->Name, TestData[f], 32);
       file++;
    }
@@ -325,7 +341,7 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
             Strncpy(file->Name, (char *)&c[2], MAX_MAC_PATH);
             file->Name[MAX_MAC_PATH] = '\0';
             /* Write Number AFTER Strncpy in case it overflows one byte into Number[0] */
-            sprintf(file->Number, "%d", f+1);
+            numToStr(file->Number, (ULONG)(f+1));
 
             file->Size = Toolbox_ParseEntrySize(c);
             file++;
@@ -347,9 +363,8 @@ void Toolbox_Set_Next_CD(UBYTE index)
                         (UBYTE *)&command, sizeof(command),
                         (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
    {
-      UBYTE errmsg[80];
-      sprintf(errmsg, "SCSI error %d\n", err);
-      MessageBox("Toolbox_Set_Next_CD", errmsg);
+      (void)err;
+      MessageBox("Toolbox_Set_Next_CD", "SCSI error");
    }
 }
 

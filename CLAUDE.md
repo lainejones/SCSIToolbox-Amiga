@@ -280,15 +280,42 @@ the startup (`ACTION_STARTUP`). `FileSysStartupMsg` gives `fssm_Unit`, `fssm_Dev
 a `DLT_VOLUME` DosList node, replies to the startup packet, then loops on packets until
 `ACTION_DIE`.
 
-**OPEN ITEM (must confirm before coding):** exact `dp_Arg1/2/3` of `ACTION_STARTUP` —
-which arg is the `DeviceNode` BPTR vs the `FileSysStartupMsg` BPTR vs the unit. Sources
-vary; confirm from `dos.dospackets.doc` autodoc (on the offline D: NDK) or a known-good
-minimal handler before writing the skeleton. Guessing here = hard lockup.
+**Startup packet — RESOLVED (verified against fat95-3.23 `src/fat95.s` ~line 1082):**
+```
+FindTask(NULL) -> proc;  port = &proc->pr_MsgPort
+WaitPort(port); msg = GetMsg(port)
+pkt  = (struct DosPacket *)msg->mn_Node.ln_Name      ; ln_Name -> DosPacket
+dn   = (struct DeviceNode *)BADDR(pkt->dp_Arg3)      ; dp_Arg3 = BPTR DeviceNode
+fssm = (struct FileSysStartupMsg *)BADDR(dn->dn_Startup)
+unit = fssm->fssm_Unit;  device = BSTR fssm->fssm_Device;  env = BADDR(fssm->fssm_Environ)
+... open underlying device ...
+dn->dn_Task = port                                   ; become the handler
+reply: pkt->dp_Res1 = DOSTRUE (-1) [or 0 + dp_Res2=error on failure]
+then loop: WaitPort/GetMsg, dispatch pkt->dp_Type, until ACTION_DIE.
+```
+Reply idiom: save `dp_Port`, set `dp_Port = &proc->pr_MsgPort`, `msg->ln_Name = pkt`,
+`PutMsg(savedPort, msg)`.
 
-**Linker note:** `scsi.c` calls `MessageBox` (Intuition `EasyRequest`, from `common.c`).
-The handler has no UI — provide a no-op (or serial-debug) `MessageBox` in `sharedfs.c` so
-`scsi.o` links without pulling in Intuition. Build a separate `sharedfs` target (handler,
-no startup-code assumptions about argc/argv; entry finds its own startup packet).
+**C-handler build (no CLI startup) — IMPLEMENTED:** fat95 is asm with its own entry. Our
+C handler builds **`-nostartfiles`** (the normal amiga-gcc/libnix startup would wait for a
+WBStartup msg and misread the ACTION_STARTUP packet — classic hang).
+
+**GOTCHA (cost a rebuild to find):** an Amiga hunk executable starts at **offset 0 of the
+first code hunk — there is no entry symbol**. amiga-gcc emits **string literals (and switch
+jump-tables) into `.text`**, so they can land at offset 0 and get "executed". Putting the C
+entry first in the source is NOT enough (the rodata still precedes it). Solution: a 2-line
+asm stub `hstart.s` (`_start: jmp _handlerMain`) **linked FIRST** → offset 0 is the jump.
+Verify with `m68k-amigaos-objdump -d -j .text sharedfs` (offset 0 must be the `jmp`).
+
+amiga-gcc defaults to absolute addressing (no `-fbaserel`), so no a4 setup; LoadSeg zeroes
+BSS so globals start at 0. `sharedfs.c` defines `SysBase` (`*(APTR)4`), opens `dos.library`
++ `utility.library` (scsi.c uses utility Str*), and provides a no-op `MessageBox` (scsi.c
+references it; do NOT link `common.c` → no Intuition). `scsi.c` was made libc-free (dropped
+its one `sprintf`/`<stdio.h>`, added `numToStr`) so `scsi.o` links `-nostartfiles`.
+
+Build: `make sharedfs` → `gcc -nostartfiles hstart.o sharedfs.o scsi.o -o sharedfs -s`.
+Mount: `src/SHARED.mountlist` (FileSystem=L:sharedfs, Device/Unit → FSSM). Skeleton
+answers ACTION_STARTUP/IS_FILESYSTEM/DIE only; objects/files are Phases 3–4. UNTESTED on HW.
 
 **Capability ceiling (firmware):** list/read/create only — **no delete, no rename**;
 writes commit on close (no in-place edit); 32-char names; synthetic dates/protection.
@@ -379,6 +406,14 @@ Do NOT sort the list — sorting breaks the `c[0]` → `SET_NEXT_CD` mapping.
 - **Upload primitives** `Toolbox_Send_Prep/Block/End` + `Toolbox_Send_File` (Fix 10),
   `SCSIF_WRITE`, exact lengths; return 0 / SCSI `io_Error`. For the `SHARED:` handler.
   *Untested on hardware.*
+- **libc-free**: dropped `<stdio.h>`/`sprintf` (added `numToStr`) so `scsi.o` links into
+  the `-nostartfiles` handler.
+
+### `src/sharedfs.c` + `src/hstart.s` (the SHARED: handler — Phase 2 skeleton)
+- `hstart.s`: `_start` asm stub (offset 0) → `jmp _handlerMain`. MUST link first.
+- `sharedfs.c`: startup (verified vs fat95), packet loop, no-op `MessageBox`, own
+  `SysBase/DOSBase/UtilityBase`. Handles ACTION_STARTUP/IS_FILESYSTEM/DIE; rest stubbed
+  to `ERROR_ACTION_NOT_KNOWN`. Read/write packets = Phases 3–4. *Untested on hardware.*
 
 ### `src/BlueSCSIToolbox.c` (standalone CLI — does NOT use scsi.c)
 - Self-contained: own `DoScsiCmd`, toolbox fns, `FileEntry`. Built from only its own `.o`.

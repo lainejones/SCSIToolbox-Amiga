@@ -1,0 +1,32 @@
+/* SCSIToolbox-Amiga - SHARED: handler mountlist
+ *
+ * Mounts the BlueSCSI/ZuluSCSI Toolbox shared folder as an AmigaDOS volume.
+ *
+ * Install:
+ *   - Copy the handler binary 'sharedfs' to L:  (e.g. Copy sharedfs L:sharedfs)
+ *   - Mount with:  Mount SHARED: from SHARED.mountlist
+ *     or install this entry (named "SHARED", no extension, with an icon) into
+ *     DEVS:DOSDrivers/ for automatic mounting at boot.
+ *
+ * Set Device/Unit to YOUR SCSI adapter + the BlueSCSI/ZuluSCSI unit:
+ *   A1200 Dataflyer in this project = ExpXDS.device, Unit 2.
+ *   (e.g. scsi.device Unit 6, etc. on other setups.)
+ *
+ * The handler reads only Device + Unit (from the FileSysStartupMsg). The
+ * geometry / DosType fields a block filesystem needs are NOT used here.
+ *
+ * NOTE: PHASE 2 SKELETON - this mounts and answers ACTION_STARTUP /
+ * IS_FILESYSTEM / DIE only; directory and file packets arrive in Phases 3-4.
+ * UNTESTED ON HARDWARE.
+ */
+
+SHARED:
+FileSystem = L:sharedfs
+Device     = ExpXDS.device
+Unit       = 2
+Flags      = 0
+GlobVec    = -1
+StackSize  = 4096
+Priority   = 5
+Mount      = 1
+#

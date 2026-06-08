@@ -1,4 +1,4 @@
-OBJS	 = BlueSCSIToolbox.o CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o SDTransfer.o
+OBJS	 = BlueSCSIToolbox.o CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o SDTransfer.o sharedfs.o hstart.o
 
 DISTDIR  = ../dist
 
@@ -35,7 +35,19 @@ CFLAGS   = $(INCLUDES) $(TIMEVAL_DEFS) -DNO_INLINE_STDARG $(OPT) -std=c99 $(CPUF
 LFLAGS   = -lamiga -Wl,--gc-sections -s
 #LFLAGS  += -ldebug
 
-all: BlueSCSIToolbox CDChanger SDTransfer
+all: BlueSCSIToolbox CDChanger SDTransfer sharedfs
+
+# SHARED: filesystem handler. Built -nostartfiles: the hstart.s stub provides the
+# hunk entry (_start at offset 0) and jumps to handlerMain; links scsi.o (libc-free)
+# but NOT common.o, so no Intuition is pulled in. See sharedfs.c / CLAUDE.md.
+sharedfs: hstart.o sharedfs.o scsi.o
+	$(CC) -nostartfiles hstart.o sharedfs.o scsi.o -o sharedfs -s
+
+sharedfs.o: sharedfs.c toolbox.h
+	$(CC) $(CFLAGS) -c sharedfs.c
+
+hstart.o: hstart.s
+	$(CC) $(INCLUDES) -c hstart.s
 
 BlueSCSIToolbox: BlueSCSIToolbox.o
 	$(CC) BlueSCSIToolbox.o -o BlueSCSIToolbox $(LFLAGS)
@@ -83,7 +95,7 @@ ZuluSCSIlogo.o: ZuluSCSIlogo.c
 	$(MAKE) CPUFLAGS="-m68060" OPT="-O3"
 
 clean:
-	$(RM) -f $(OBJS) BlueSCSIToolbox CDChanger SDTransfer
+	$(RM) -f $(OBJS) BlueSCSIToolbox CDChanger SDTransfer sharedfs
 
 release:
 	$(MKDIR)
