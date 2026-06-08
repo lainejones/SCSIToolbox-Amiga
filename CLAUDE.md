@@ -259,6 +259,42 @@ and link cleanly against amiga-gcc's bundled headers instead:
 
 ---
 
+## Phase 2 — `SHARED:` handler (design notes, in progress)
+
+Goal: an AmigaDOS **packet handler** (`sharedfs.c`) that mounts the shared folder as a
+read/write volume. Decisions: raw `dos.library` packet loop (no filesysbox dependency);
+**flat folder first** (subdirs via SET_WORKING_DIR later); reuse `scsi.c` for the SCSI
+protocol.
+
+**Action codes (verified from this NDK's `dos/dosextens.h` + wiki):**
+`ACTION_STARTUP`=0, `ACTION_DIE`=5, `ACTION_LOCATE_OBJECT`=8, `ACTION_FREE_LOCK`=15,
+`ACTION_COPY_DIR`=19, `ACTION_PARENT`=29, `ACTION_EXAMINE_OBJECT`=23,
+`ACTION_EXAMINE_NEXT`=24, `ACTION_READ`=82, `ACTION_WRITE`=87, `ACTION_FINDINPUT`=1005,
+`ACTION_FINDOUTPUT`=1006, `ACTION_END`=1007, `ACTION_SEEK`=1008, `ACTION_IS_FILESYSTEM`=1027,
+`ACTION_INFO`=26, `ACTION_CURRENT_VOLUME`=7.
+
+**Structure (verified):** handler runs as a process; its `pr_MsgPort` receives DOS
+packets (a `Message` whose `mn_Node.ln_Name` points to the `DosPacket`). First packet is
+the startup (`ACTION_STARTUP`). `FileSysStartupMsg` gives `fssm_Unit`, `fssm_Device`
+(BSTR), `fssm_Environ`. The handler sets the `DeviceNode`'s `dn_Task` to its port, creates
+a `DLT_VOLUME` DosList node, replies to the startup packet, then loops on packets until
+`ACTION_DIE`.
+
+**OPEN ITEM (must confirm before coding):** exact `dp_Arg1/2/3` of `ACTION_STARTUP` —
+which arg is the `DeviceNode` BPTR vs the `FileSysStartupMsg` BPTR vs the unit. Sources
+vary; confirm from `dos.dospackets.doc` autodoc (on the offline D: NDK) or a known-good
+minimal handler before writing the skeleton. Guessing here = hard lockup.
+
+**Linker note:** `scsi.c` calls `MessageBox` (Intuition `EasyRequest`, from `common.c`).
+The handler has no UI — provide a no-op (or serial-debug) `MessageBox` in `sharedfs.c` so
+`scsi.o` links without pulling in Intuition. Build a separate `sharedfs` target (handler,
+no startup-code assumptions about argc/argv; entry finds its own startup packet).
+
+**Capability ceiling (firmware):** list/read/create only — **no delete, no rename**;
+writes commit on close (no in-place edit); 32-char names; synthetic dates/protection.
+
+---
+
 ## ListBrowser Tag Reference (AmigaOS 3.2.3 ReAction)
 
 Compile with `-DNO_INLINE_STDARG` to force `AllocListBrowserNodeA` (TagItem array)
