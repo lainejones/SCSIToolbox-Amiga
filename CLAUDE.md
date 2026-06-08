@@ -209,6 +209,56 @@ CurrentDir(oldlock);
 
 ---
 
+### Fix 10 — CLI upload (`SEND`) never worked: wrong SCSI direction + length
+
+**Symptom:** `BlueSCSIToolbox ... SEND=file` did not actually write the file to the
+shared folder (upstream 1.3; same bug in the bundled reference copy).
+
+**Root cause — data direction:** `Toolbox_PutFileByName` issued `SEND_FILE_PREP`,
+`SEND_FILE_10` and `SEND_FILE_END` with `SCSIF_READ | SCSIF_AUTOSENSE` — copied from
+the read commands. These are **DATA-OUT** (host→device). In `<devices/scsidisk.h>`,
+`SCSIF_WRITE = 0` (direction out), `SCSIF_READ = 1` (direction in); so `SCSIF_READ`
+set up an inbound data phase for an outbound command.
+
+**Root cause — transfer length:** every call passed `scsi_Length = MAX_DATA_LEN`
+(4096) regardless of the real byte count. On a write the adapter clocks out exactly
+`scsi_Length` bytes, so the firmware's data phase never matched.
+
+**Firmware semantics** (from BlueSCSI `BlueSCSI_Toolbox.cpp`, verified upstream):
+- `SEND_FILE_PREP` (0xD3): DATA-OUT = **exactly 33 bytes** (`32+1`) = filename.
+- `SEND_FILE_10` (0xD4): DATA-OUT = the block's byte count. Legacy mode (`CDB[6]=0`):
+  count in `CDB[1..2]`, 512-byte block index in `CDB[3..5]` (big-endian). Block mode
+  (`CDB[6]>0`, needs `CAP_LARGE_SEND`): `CDB[6]×512` bytes.
+- `SEND_FILE_END` (0xD5): no DATA-OUT (length 0).
+
+**Fix:** direction `SCSIF_WRITE | SCSIF_AUTOSENSE`; length = 33 for PREP, the chunk
+size (≤512, legacy mode) for SEND_FILE_10, 0 for END. **Still needs hardware testing.**
+
+**Reusable primitives:** the same corrected protocol is now in `scsi.c` as
+`Toolbox_Send_Prep` / `Toolbox_Send_Block` / `Toolbox_Send_End` (+ `Toolbox_Send_File`
+wrapper), UI-agnostic (return 0 / SCSI `io_Error`), for the forthcoming `SHARED:`
+filesystem handler. Multi-block `GET_FILE` reads (CDB[6]=block count, needs
+`CAP_LARGE_TRANSFERS` + a larger buffer) are **deferred** to the handler's read path.
+
+---
+
+## SCSIToolbox-Amiga fork (branch `scsitoolbox-amiga`)
+
+This repo is a GPL-3.0-or-later fork of Paul Hill's *BlueSCSI-toolbox-Amiga* by
+**Laine Jones** ([lainejones](https://github.com/lainejones/)), adding a mountable
+`SHARED:` handler. Upstream:
+<https://github.com/paulroberthill/BlueSCSI-toolbox-Amiga>. See `README.md`,
+`ATTRIBUTION.md`, and `LICENSE-HEADER.txt`. New files use the GPLv3 header with
+© 2026 Laine Jones; modified files keep Paul Hill's © and add a `Modified … by Laine
+Jones (lainejones)` line.
+
+**Build note (D: NDK offline):** the Makefile points `INCLUDES` at `D:\Amiga\Include_H`
+(NDK 47.x, the OS 3.2.3 reference). When D: is not mounted, the CLI + `scsi.o` compile
+and link cleanly against amiga-gcc's bundled headers instead:
+`-IC:\amiga-gcc\m68k-amigaos\ndk-include`. Prefer the D: NDK for official/release builds.
+
+---
+
 ## ListBrowser Tag Reference (AmigaOS 3.2.3 ReAction)
 
 Compile with `-DNO_INLINE_STDARG` to force `AllocListBrowserNodeA` (TagItem array)
@@ -258,12 +308,18 @@ All commands are 10-byte vendor-specific CDBs. Data buffer: 4096 bytes (`MAX_DAT
 | Command | CDB[0] | Notes |
 |---|---|---|
 | `LIST_FILES` | `0xD0` | Returns file entries from Shared/ folder |
-| `GET_FILE` | `0xD1` | CDB[1]=index, CDB[2-5]=page offset. Returns 4096-byte pages. |
+| `GET_FILE` | `0xD1` | CDB[1]=index, CDB[2-5]=page offset. Returns 4096-byte pages. (CDB[6]=block count for multi-block when `CAP_LARGE_TRANSFERS`.) |
 | `COUNT_FILES` | `0xD2` | Returns 1 byte: file count |
+| `SEND_FILE_PREP` | `0xD3` | **DATA-OUT 33 bytes** = filename (32+NUL). Creates the file. |
+| `SEND_FILE_10` | `0xD4` | **DATA-OUT**. Legacy (CDB[6]=0): count in CDB[1..2], 512-byte block index in CDB[3..5]. Block mode (CDB[6]>0, `CAP_LARGE_SEND`): CDB[6]×512 bytes. |
+| `SEND_FILE_END` | `0xD5` | **DATA-OUT 0**. Closes the file. |
 | `LIST_CDS` | `0xD7` | Returns CD image entries in write-timestamp order |
 | `SET_NEXT_CD` | `0xD8` | CDB[1]=index. Selects next CD image to mount. |
-| `METADATA` | `0xD9` | CDB[1]=subcommand: 0x00=list devices, 0x01=get capabilities |
+| `METADATA` | `0xD9` | CDB[1]=subcommand: 0x00=list devices, 0x01=get capabilities, **0x02=SET_WORKING_DIR** (path DATA-OUT, ≤64B — for subdir descent), 0x03=get working dir |
 | `COUNT_CDS` | `0xDA` | Returns 1 byte: CD count |
+
+**Write commands are DATA-OUT (host→device): direction `SCSIF_WRITE`, `scsi_Length` =
+the exact byte count. No DELETE or RENAME command exists in the protocol.** See Fix 10.
 
 **Entry format** (40 bytes each):
 - `[0]` — device-internal index (send this to `SET_NEXT_CD`)
@@ -284,6 +340,14 @@ Do NOT sort the list — sorting breaks the `c[0]` → `SET_NEXT_CD` mapping.
 - `extern int filecount` exported via `toolbox.h`
 - `sprintf(file->Number, ...)` written AFTER `Strncpy` to avoid overflow corruption
 - No sorting in `Toolbox_List_Files` — caller must not sort either
+- **Upload primitives** `Toolbox_Send_Prep/Block/End` + `Toolbox_Send_File` (Fix 10),
+  `SCSIF_WRITE`, exact lengths; return 0 / SCSI `io_Error`. For the `SHARED:` handler.
+  *Untested on hardware.*
+
+### `src/BlueSCSIToolbox.c` (standalone CLI — does NOT use scsi.c)
+- Self-contained: own `DoScsiCmd`, toolbox fns, `FileEntry`. Built from only its own `.o`.
+- `Toolbox_PutFileByName` (the `SEND` verb) **fixed** per Fix 10. *Untested on hardware.*
+- `$VER` bumped to 1.4.
 
 ### `src/CDChanger.c`
 - `static const char * const g_nums[64]` for # column (compiled-in literals)

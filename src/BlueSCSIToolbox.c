@@ -1,16 +1,21 @@
-/* 
+/*
  * Copyright (C) 2024 Paul Hill
- * 
+ *
+ * Modified 2026-06-08 by Laine Jones (lainejones): part of SCSIToolbox-Amiga.
+ * Fixed the SEND (upload) path in Toolbox_PutFileByName — corrected SCSI data
+ * direction (SCSIF_WRITE, not SCSIF_READ) and per-command transfer lengths so
+ * SEND_FILE_PREP/10/END actually work against BlueSCSI/ZuluSCSI firmware.
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
- * 
+ * (at your option) any later version.
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details. 
- * 
+ * GNU General Public License for more details.
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -52,7 +57,7 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-static const char ver[] = "$VER: BlueSCSIToolbox 1.3 (7.3.2026)";
+static const char ver[] = "$VER: BlueSCSIToolbox 1.4 (8.6.2026)";
 
 int Toolbox_List_Files(int cdrom);
 int Toolbox_List_Devices(void);
@@ -742,31 +747,33 @@ ULONG Toolbox_GetFileByName(char *destination, char *source)
    return count;
 }
 
-/* Write a file to the shared folder */
+/* Write a file to the shared folder.
+ *
+ * Protocol (per BlueSCSI firmware BlueSCSI_Toolbox.cpp):
+ *   SEND_FILE_PREP (0xD3): DATA OUT = exactly 33 bytes (32 + NUL) = the
+ *                          destination filename.
+ *   SEND_FILE_10   (0xD4): DATA OUT = the byte count for this block. Legacy
+ *                          mode (CDB[6]=0): count in CDB[1..2]; 512-byte block
+ *                          offset in CDB[3..5], big-endian. We send <=512/cmd.
+ *   SEND_FILE_END  (0xD5): no DATA OUT.
+ *
+ * All three are DATA-OUT (host->device): direction must be SCSIF_WRITE and the
+ * SCSI transfer length must match the bytes the firmware reads. Upstream 1.3
+ * used SCSIF_READ and scsi_Length=MAX_DATA_LEN for all of these, so uploads
+ * never worked; corrected here.
+ */
 int Toolbox_PutFileByName(char *destination, char *source)
 {
+   UBYTE command[10] = {0};
    int err;
-   int count = 0;
+   int i;
    BPTR fh;
-   int offset;
-   UBYTE command[] = {BLUESCSI_TOOLBOX_SEND_FILE_PREP, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   ULONG offset;          /* in 512-byte blocks */
+   ULONG total = 0;
+   char size_text[32];
 
-   char *name = destination;
-   int i = 0;
-   while (*name)
-   {
-      scsi_data[i++] = *name++;
-   }
-   scsi_data[i++] = '\0';
-
-   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
-                        (UBYTE *)&command, sizeof(command),
-                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
-   {
-      Printf("SCSI error %ld\n", err);
-      return 0;
-   }
-
+   /* Open the local source FIRST: don't PREP (which creates the file on the SD
+    * card) until we know we can read what we're meant to upload. */
    fh = Open(source, MODE_OLDFILE);
    if (!fh)
    {
@@ -775,44 +782,72 @@ int Toolbox_PutFileByName(char *destination, char *source)
       return 0;
    }
 
-   offset = 0; // offset in 512 byte pages
-   while (1)
-   {
-      LONG len = Read(fh, scsi_data, 512);
-      if (len == 0)
-      {
-         break;
-      }
+   /* --- SEND_FILE_PREP: 33-byte filename, DATA OUT --- */
+   command[0] = BLUESCSI_TOOLBOX_SEND_FILE_PREP;
+   for (i = 0; i < MAX_MAC_PATH && destination[i]; i++)
+      scsi_data[i] = (UBYTE)destination[i];
+   for (; i < MAX_MAC_PATH + 1; i++)
+      scsi_data[i] = 0;
 
-      command[0] = BLUESCSI_TOOLBOX_SEND_FILE_10;
-      command[1] = (len & 0xFF00) >> 8;
-      command[2] = (len & 0xFF);
-      command[3] = (offset & 0xFF0000) >> 16;
-      command[4] = (offset & 0xFF00) >> 8;
-      command[5] = (offset & 0xFF);
-      if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
-                           (UBYTE *)&command, sizeof(command),
-                           (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
-      {
-         Printf("SCSI error %ld\n", err);
-         return -1;
-      }
-
-      offset++;
-   }
-
-   command[0] = BLUESCSI_TOOLBOX_SEND_FILE_END;
-   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, MAX_MAC_PATH + 1,
                         (UBYTE *)&command, sizeof(command),
-                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+                        (SCSIF_WRITE | SCSIF_AUTOSENSE))) != 0)
    {
-      Printf("SCSI error %ld\n", err);
+      Printf("SCSI error %ld preparing '%s'\n", err, (ULONG)destination);
       Close(fh);
       return 0;
    }
 
+   /* --- SEND_FILE_10: stream up to 512 bytes per 512-byte block --- */
+   offset = 0;
+   while (1)
+   {
+      LONG len = Read(fh, scsi_data, 512);
+      if (len < 0)
+      {
+         PrintFault(IoErr(), source);
+         Close(fh);
+         return 0;
+      }
+      if (len == 0)
+         break;
+
+      command[0] = BLUESCSI_TOOLBOX_SEND_FILE_10;
+      command[1] = (UBYTE)((len >> 8) & 0xFF);   /* byte count hi */
+      command[2] = (UBYTE)(len & 0xFF);          /* byte count lo */
+      command[3] = (UBYTE)((offset >> 16) & 0xFF);
+      command[4] = (UBYTE)((offset >> 8) & 0xFF);
+      command[5] = (UBYTE)(offset & 0xFF);
+      command[6] = 0;                            /* legacy byte-count mode */
+      if ((err = DoScsiCmd((UBYTE *)scsi_data, (int)len,
+                           (UBYTE *)&command, sizeof(command),
+                           (SCSIF_WRITE | SCSIF_AUTOSENSE))) != 0)
+      {
+         Printf("SCSI error %ld sending '%s'\n", err, (ULONG)destination);
+         Close(fh);
+         return 0;
+      }
+
+      total += (ULONG)len;
+      offset++;
+   }
    Close(fh);
-   return count;
+
+   /* --- SEND_FILE_END: no data phase --- */
+   command[0] = BLUESCSI_TOOLBOX_SEND_FILE_END;
+   command[1] = 0; command[2] = 0; command[3] = 0;
+   command[4] = 0; command[5] = 0; command[6] = 0;
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, 0,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_WRITE | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld finishing '%s'\n", err, (ULONG)destination);
+      return 0;
+   }
+
+   Toolbox_FormatSize(size_text, sizeof(size_text), total);
+   Printf("%s. %s bytes sent\n", (ULONG)destination, (ULONG)size_text);
+   return (int)total;
 }
 
 /* Enable/Disable debug logging on the device */

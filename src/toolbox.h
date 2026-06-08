@@ -1,10 +1,13 @@
-/** 
+/**
  * Copyright (C) 2024 Paul Hill
- * 
+ *
+ * Modified 2026-06-08 by Laine Jones (lainejones): part of SCSIToolbox-Amiga.
+ * Declared the shared-folder upload primitives implemented in scsi.c.
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
  * 
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -58,6 +61,11 @@ struct FileEntry *Toolbox_List_Files(int cdrom);
 void Toolbox_Set_Next_CD(UBYTE index);
 void scsi_cleanup(void);
 ULONG Toolbox_Download(char *source, char *destination, void (*callback)(int));
+/* Shared-folder upload primitives (return 0 on success, SCSI io_Error on fail) */
+LONG Toolbox_Send_Prep(const char *remotename);
+LONG Toolbox_Send_Block(ULONG block, const UBYTE *data, int len);
+LONG Toolbox_Send_End(void);
+LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callback)(LONG));
 int scsi_setup(char *scsi_dev, int scsi_unit);
 int Toolbox_GetCapabilities(void);
 extern int scsi_isBlueSCSI, scsi_isZuluSCSI;

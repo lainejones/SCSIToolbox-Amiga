@@ -1,6 +1,11 @@
 /*
  * Copyright (C) 2024 Paul Hill
  *
+ * Modified 2026-06-08 by Laine Jones (lainejones): part of SCSIToolbox-Amiga.
+ * Added the shared-folder upload primitives (Toolbox_Send_Prep/Block/End and
+ * the Toolbox_Send_File wrapper) for use by the forthcoming SHARED: AmigaDOS
+ * filesystem handler. UI-agnostic: errors are returned, not shown.
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -460,4 +465,124 @@ ULONG Toolbox_Download(char *source, char *destination, void (*callback)(int))
    }
 
    return result;
+}
+
+/* ----------------------------------------------------------------------------
+ * Shared-folder upload (write) primitives.
+ *
+ * These mirror the corrected SEND_FILE protocol (see BlueSCSIToolbox.c):
+ *   PREP  (0xD3): DATA OUT = 33 bytes (filename, 32 + NUL).
+ *   BLOCK (0xD4): DATA OUT = 'len' bytes (1..512). Legacy mode (CDB[6]=0):
+ *                 byte count in CDB[1..2]; 512-byte block index in CDB[3..5].
+ *   END   (0xD5): no DATA OUT.
+ * All are DATA OUT (host->device): direction SCSIF_WRITE, transfer length must
+ * equal the bytes the firmware reads.
+ *
+ * UI-agnostic: each returns 0 on success or the SCSI io_Error on failure, so
+ * the SHARED: handler (which has no UI) can map the result to a DOS error.
+ * -------------------------------------------------------------------------- */
+
+/* Begin an upload named 'remotename' (leaf name, <=32 chars) in the shared dir. */
+LONG Toolbox_Send_Prep(const char *remotename)
+{
+   UBYTE command[10] = {0};
+   int i;
+
+   command[0] = BLUESCSI_TOOLBOX_SEND_FILE_PREP;
+   for (i = 0; i < MAX_MAC_PATH && remotename[i]; i++)
+      scsi_data[i] = (UBYTE)remotename[i];
+   for (; i < MAX_MAC_PATH + 1; i++)
+      scsi_data[i] = 0;
+
+   return DoScsiCmd((UBYTE *)scsi_data, MAX_MAC_PATH + 1,
+                    (UBYTE *)&command, sizeof(command),
+                    (SCSIF_WRITE | SCSIF_AUTOSENSE));
+}
+
+/* Send one 512-byte block (1..512 bytes) at 512-byte block index 'block'.
+ * 'data' may be scsi_data itself (no copy) or any caller buffer. */
+LONG Toolbox_Send_Block(ULONG block, const UBYTE *data, int len)
+{
+   UBYTE command[10] = {0};
+
+   if (len < 1 || len > 512)
+      return -1;
+   if (data != scsi_data)
+      CopyMem((APTR)data, scsi_data, len);
+
+   command[0] = BLUESCSI_TOOLBOX_SEND_FILE_10;
+   command[1] = (UBYTE)((len >> 8) & 0xFF);   /* byte count hi */
+   command[2] = (UBYTE)(len & 0xFF);          /* byte count lo */
+   command[3] = (UBYTE)((block >> 16) & 0xFF);
+   command[4] = (UBYTE)((block >> 8) & 0xFF);
+   command[5] = (UBYTE)(block & 0xFF);
+   command[6] = 0;                            /* legacy byte-count mode */
+
+   return DoScsiCmd((UBYTE *)scsi_data, len,
+                    (UBYTE *)&command, sizeof(command),
+                    (SCSIF_WRITE | SCSIF_AUTOSENSE));
+}
+
+/* Finish the current upload (close the file on the SD card). */
+LONG Toolbox_Send_End(void)
+{
+   UBYTE command[10] = {0};
+
+   command[0] = BLUESCSI_TOOLBOX_SEND_FILE_END;
+   return DoScsiCmd((UBYTE *)scsi_data, 0,
+                    (UBYTE *)&command, sizeof(command),
+                    (SCSIF_WRITE | SCSIF_AUTOSENSE));
+}
+
+/* Whole-file convenience wrapper: upload local 'source' as 'remotename'.
+ * Returns bytes sent, or -1 on error (IoErr set for DOS-side failures).
+ * 'callback' (optional) is called with the running byte total. */
+LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callback)(LONG))
+{
+   BPTR fh;
+   ULONG block = 0;
+   ULONG total = 0;
+
+   /* Open the local source FIRST: don't PREP (which creates the file on the SD
+    * card) until we know the source is readable. */
+   fh = Open((STRPTR)source, MODE_OLDFILE);
+   if (!fh)
+   {
+      SetIoErr(ERROR_OBJECT_NOT_FOUND);
+      return -1;
+   }
+
+   if (Toolbox_Send_Prep(remotename) != 0)
+   {
+      Close(fh);
+      return -1;
+   }
+
+   for (;;)
+   {
+      LONG len = Read(fh, scsi_data, 512);
+      if (len < 0)
+      {
+         Close(fh);
+         return -1;
+      }
+      if (len == 0)
+         break;
+
+      if (Toolbox_Send_Block(block, scsi_data, (int)len) != 0)
+      {
+         Close(fh);
+         return -1;
+      }
+      total += (ULONG)len;
+      block++;
+      if (callback)
+         callback((LONG)total);
+   }
+   Close(fh);
+
+   if (Toolbox_Send_End() != 0)
+      return -1;
+
+   return (LONG)total;
 }
