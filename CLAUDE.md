@@ -408,12 +408,22 @@ Do NOT sort the list — sorting breaks the `c[0]` → `SET_NEXT_CD` mapping.
   *Untested on hardware.*
 - **libc-free**: dropped `<stdio.h>`/`sprintf` (added `numToStr`) so `scsi.o` links into
   the `-nostartfiles` handler.
+- `Toolbox_Get_Bytes(index, offset, buf, len)`: paged GET_FILE into RAM, for the handler's
+  ACTION_READ. Plus a leak-guard in `Toolbox_List_Files` (frees the prior list).
 
-### `src/sharedfs.c` + `src/hstart.s` (the SHARED: handler — Phase 2 skeleton)
+### `src/sharedfs.c` + `src/hstart.s` (the SHARED: handler — Phase 3, read path)
 - `hstart.s`: `_start` asm stub (offset 0) → `jmp _handlerMain`. MUST link first.
 - `sharedfs.c`: startup (verified vs fat95), packet loop, no-op `MessageBox`, own
-  `SysBase/DOSBase/UtilityBase`. Handles ACTION_STARTUP/IS_FILESYSTEM/DIE; rest stubbed
-  to `ERROR_ACTION_NOT_KNOWN`. Read/write packets = Phases 3–4. *Untested on hardware.*
+  `SysBase/DOSBase/UtilityBase`. **Read path done:** LOCATE_OBJECT/FREE_LOCK/COPY_DIR/
+  PARENT, EXAMINE_OBJECT/EXAMINE_NEXT, FINDINPUT/READ/SEEK/END, INFO/DISK_INFO,
+  CURRENT_VOLUME, IS_FILESYSTEM, DIE. **Write path (FINDOUTPUT/WRITE) + unsupported ops
+  = Phase 4 stub** → `ERROR_ACTION_NOT_KNOWN`. *Untested on hardware.*
+- Flat-folder model: only dir = root; files are leaves. Lock = `struct MyLock` (FileLock
+  first + isFile/index/size/name/exNext). Open file = `struct MyFH` in `fh_Arg1`.
+- **fib detail (from fat95):** `fib_FileName`/`fib_Comment` are **BCPL strings** (length
+  byte + chars), `fib_DirEntryType` = 1 (root) / -3 (file). Got this wrong = garbage names.
+- READ uses `Toolbox_Get_Bytes` (paged GET_FILE into RAM). scsi.c got a leak-guard so the
+  handler can re-`Toolbox_List_Files` per directory scan.
 
 ### `src/BlueSCSIToolbox.c` (standalone CLI — does NOT use scsi.c)
 - Self-contained: own `DoScsiCmd`, toolbox fns, `FileEntry`. Built from only its own `.o`.

@@ -306,6 +306,13 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
       }
    }
 
+   // Free any previous list (the SHARED: handler re-lists repeatedly)
+   if (files)
+   {
+      FreeMem(files, sizeof(struct FileEntry) * (filecount + 1));
+      files = NULL;
+   }
+
    // Get the file count
    filecount = Toolbox_Count_Files(cdrom);
    if (filecount > 0)
@@ -600,4 +607,50 @@ LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callba
       return -1;
 
    return (LONG)total;
+}
+
+/* Read 'len' bytes from shared-folder file 'index' (the toolbox device index)
+   starting at byte 'offset', into memory 'buf'. Returns bytes actually read
+   (may be < len at EOF), or -1 on SCSI error. Uses paged GET_FILE (4096-byte
+   pages). For the SHARED: handler's ACTION_READ. */
+LONG Toolbox_Get_Bytes(int index, ULONG offset, UBYTE *buf, ULONG len)
+{
+   UBYTE command[10] = {0};
+   ULONG got = 0;
+
+   command[0] = BLUESCSI_TOOLBOX_GET_FILE;
+   command[1] = (UBYTE)index;
+
+   while (got < len)
+   {
+      ULONG page = (offset + got) / MAX_DATA_LEN;
+      ULONG inPage = (offset + got) - (page * MAX_DATA_LEN);
+      ULONG avail, chunk;
+
+      command[2] = (UBYTE)((page >> 24) & 0xFF);
+      command[3] = (UBYTE)((page >> 16) & 0xFF);
+      command[4] = (UBYTE)((page >> 8) & 0xFF);
+      command[5] = (UBYTE)(page & 0xFF);
+
+      if (DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                    (UBYTE *)&command, sizeof(command),
+                    (SCSIF_READ | SCSIF_AUTOSENSE)) != 0)
+         return -1;
+
+      avail = (ULONG)scsi_cmd->scsi_Actual;
+      if (avail <= inPage)
+         break;                         /* nothing more in this page -> EOF */
+
+      chunk = avail - inPage;
+      if (chunk > len - got)
+         chunk = len - got;
+
+      CopyMem(scsi_data + inPage, buf + got, chunk);
+      got += chunk;
+
+      if (avail < MAX_DATA_LEN)
+         break;                         /* short page -> end of file */
+   }
+
+   return (LONG)got;
 }

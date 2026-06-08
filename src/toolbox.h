@@ -66,6 +66,7 @@ LONG Toolbox_Send_Prep(const char *remotename);
 LONG Toolbox_Send_Block(ULONG block, const UBYTE *data, int len);
 LONG Toolbox_Send_End(void);
 LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callback)(LONG));
+LONG Toolbox_Get_Bytes(int index, ULONG offset, UBYTE *buf, ULONG len);
 int scsi_setup(char *scsi_dev, int scsi_unit);
 int Toolbox_GetCapabilities(void);
 extern int scsi_isBlueSCSI, scsi_isZuluSCSI;
@@ -82,6 +83,10 @@ struct FileEntry
    char Name[32 + 1];
    char Number[5 + 1];
 };
+
+/* The current shared-folder / CD list, allocated by Toolbox_List_Files (scsi.c).
+   Used by the SHARED: handler's EXAMINE_NEXT. */
+extern struct FileEntry *files;
 
 #endif
 
