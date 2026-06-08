@@ -58,7 +58,8 @@ struct DosLibrary *DOSBase = NULL;
 struct Library *UtilityBase = NULL;   /* scsi.c (and we) use utility Str* fns */
 
 static struct Process *gProc = NULL;
-static BPTR gVolBptr = 0;             /* our DeviceNode, used as the volume */
+static BPTR gVolBptr = 0;             /* BPTR to our volume DosList node */
+static struct DosList *gVol = NULL;   /* DLT_VOLUME node (Workbench disk icon) */
 static LONG gUnit = 0;
 
 /* A lock = a FileLock plus our per-object bookkeeping (fl_ must be first). */
@@ -550,7 +551,6 @@ LONG handlerMain(void)
       goto reply_and_exit;
    }
 
-   gVolBptr = (BPTR)pkt->dp_Arg3;                  /* DeviceNode = our volume */
    dn = (struct DeviceNode *)BADDR((BPTR)pkt->dp_Arg3);
    fssm = (struct FileSysStartupMsg *)BADDR(dn->dn_Startup);
    gUnit = fssm->fssm_Unit;
@@ -563,6 +563,22 @@ LONG handlerMain(void)
       pkt->dp_Res1 = DOSFALSE;
       pkt->dp_Res2 = ERROR_DEVICE_NOT_MOUNTED;
       goto reply_and_exit;
+   }
+
+   /* Create a DLT_VOLUME node so Workbench shows SHARED: as a disk and locks
+      have a real volume to point at. Falls back to the device node if it fails. */
+   gVol = MakeDosEntry("SHARED", DLT_VOLUME);
+   if (gVol)
+   {
+      gVol->dol_Task = &gProc->pr_MsgPort;
+      DateStamp(&gVol->dol_misc.dol_volume.dol_VolumeDate);
+      gVol->dol_misc.dol_volume.dol_DiskType = ID_SHARED_DISK;
+      AddDosEntry(gVol);
+      gVolBptr = MKBADDR(gVol);
+   }
+   else
+   {
+      gVolBptr = (BPTR)pkt->dp_Arg3;
    }
 
    dn->dn_Task = &gProc->pr_MsgPort;
@@ -633,6 +649,14 @@ LONG handlerMain(void)
       }
    }
 
+   if (gVol)                            /* remove the volume node on unmount */
+   {
+      LockDosList(LDF_VOLUMES | LDF_WRITE);
+      RemDosEntry(gVol);
+      UnLockDosList(LDF_VOLUMES | LDF_WRITE);
+      FreeDosEntry(gVol);
+      gVol = NULL;
+   }
    scsi_cleanup();
 
 reply_and_exit:

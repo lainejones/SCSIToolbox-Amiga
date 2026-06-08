@@ -422,6 +422,9 @@ Do NOT sort the list — sorting breaks the `c[0]` → `SET_NEXT_CD` mapping.
   512-byte blocks (buffered), END flushes the partial block + SEND_FILE_END. No seek on a
   write handle. Firmware allows ONE upload at a time, so don't interleave other shared-
   folder ops while a file is open for writing.
+- **Volume node (Phase 5):** startup creates a `DLT_VOLUME` DosList entry "SHARED" via
+  `MakeDosEntry`/`AddDosEntry` (so Workbench shows a disk icon; locks' `fl_Volume` points
+  to it); removed on ACTION_DIE (`LockDosList`+`RemDosEntry`+`FreeDosEntry`).
 - Flat-folder model: only dir = root; files are leaves. Lock = `struct MyLock` (FileLock
   first + isFile/index/size/name/exNext). Open file = `struct MyFH` in `fh_Arg1`.
 - **fib detail (from fat95):** `fib_FileName`/`fib_Comment` are **BCPL strings** (length

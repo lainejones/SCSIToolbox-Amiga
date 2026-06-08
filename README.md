@@ -36,14 +36,19 @@ Command-line access: `DIR`, `LISTCDS`, `SETCD N`, `RECEIVE=file` (download), and
 `SEND=file` (upload). This fork **fixes the `SEND` upload path**, which never worked
 upstream (wrong SCSI data direction and transfer length — see History).
 
-### SHARED: filesystem handler — *new in this fork (in development)*
-A read/write AmigaDOS handler that **mounts the emulator's shared folder as a volume**
-(`SHARED:`), so native tools — `Copy`, `List`, Directory Opus, Workbench drag-and-drop —
-can read from and write to it directly, instead of the one-file-at-a-time download.
+### SHARED: filesystem handler — *new in this fork*
+A read/write AmigaDOS handler (`sharedfs`) that **mounts the emulator's shared folder as a
+volume** (`SHARED:`), so native tools — `Copy`, `List`, Directory Opus, Workbench
+drag-and-drop — read from and write to it directly, instead of the one-file-at-a-time
+download. Install: copy `sharedfs` to `L:`, then `Mount SHARED: from SHARED.mountlist`
+(see [src/SHARED.mountlist](src/SHARED.mountlist); set Device/Unit to your adapter).
 
 Capabilities are bounded by the Toolbox firmware protocol: **list / read / create files**
 are supported; **delete and rename are not** (the firmware exposes no such commands).
 See the project `CLAUDE.md` for the protocol details and handler design.
+
+> **Status:** code-complete (browse, copy-from, copy-to, Workbench volume) and builds
+> clean, but **not yet tested on hardware** — test on a real BlueSCSI/ZuluSCSI before use.
 
 ---
 
@@ -82,10 +87,10 @@ modifications © 2026 Laine Jones. The complete corresponding source is in this 
   `SEND_FILE_PREP`/`SEND_FILE_10`/`SEND_FILE_END`, which never worked upstream.
 * 1.4 — Added reusable upload primitives (`Toolbox_Send_Prep`/`Block`/`End` +
   `Toolbox_Send_File`) to the shared SCSI layer (`scsi.c`) for the handler below.
-* (in development) `SHARED:` read/write AmigaDOS filesystem handler — mount the shared
-  folder as a native volume usable by `Copy`, `List`, Directory Opus, Workbench.
-  *(Planned: multi-block `GET_FILE` reads when `CAP_LARGE_TRANSFERS` is present, added
-  with the handler's read path where the larger buffer is warranted.)*
+* 1.4 — `SHARED:` read/write AmigaDOS filesystem handler (`sharedfs`) — mounts the shared
+  folder as a native volume usable by `Copy`, `List`, Directory Opus, and Workbench
+  (browse, copy-from, copy-to, disk icon). Code-complete; untested on hardware.
+  *(Planned: multi-block `GET_FILE` reads when `CAP_LARGE_TRANSFERS` is present.)*
 
 **BlueSCSI-toolbox-Amiga (upstream) — Paul Hill**
 * 1.3 — GCC (amiga-gcc) build; numerous ReAction/ListBrowser and startup fixes.
