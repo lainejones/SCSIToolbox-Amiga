@@ -72,12 +72,19 @@ struct MyLock
    char  name[40];    /* file leaf name (file) */
 };
 
-/* An open file for reading. */
+/* An open file. Read mode uses index/fsize/pos; write mode streams 512-byte
+   blocks to the toolbox upload protocol (PREP done at open, END at close). */
 struct MyFH
 {
+   LONG  isWrite;     /* 0 = read, 1 = write */
+   /* read */
    LONG  index;
    ULONG fsize;
    ULONG pos;
+   /* write */
+   ULONG wblock;      /* next 512-byte block index */
+   ULONG wbuflen;     /* bytes currently buffered in wbuf */
+   UBYTE wbuf[512];
 };
 
 /* ---- small libc-free string helpers ------------------------------------ */
@@ -384,10 +391,10 @@ static void doSeek(struct DosPacket *pkt)
    LONG oldpos;
    LONG newpos;
 
-   if (!mfh)
+   if (!mfh || mfh->isWrite)            /* upload is sequential; no seek */
    {
       pkt->dp_Res1 = -1;
-      pkt->dp_Res2 = ERROR_INVALID_LOCK;
+      pkt->dp_Res2 = ERROR_SEEK_ERROR;
       return;
    }
    oldpos = (LONG)mfh->pos;
@@ -414,8 +421,90 @@ static void doEnd(struct DosPacket *pkt)
 {
    struct MyFH *mfh = (struct MyFH *)pkt->dp_Arg1;
    if (mfh)
+   {
+      if (mfh->isWrite)                            /* finish the upload */
+      {
+         if (mfh->wbuflen > 0)
+            Toolbox_Send_Block(mfh->wblock, mfh->wbuf, (int)mfh->wbuflen);
+         Toolbox_Send_End();
+      }
       FreeVec(mfh);
+   }
    pkt->dp_Res1 = DOSTRUE;
+   pkt->dp_Res2 = 0;
+}
+
+static void doFindOutput(struct DosPacket *pkt)
+{
+   struct FileHandle *fh = (struct FileHandle *)BADDR((BPTR)pkt->dp_Arg1);
+   char leaf[40];
+   struct MyFH *mfh;
+
+   leafFromBStr(pkt->dp_Arg3, leaf, sizeof(leaf));
+   if (leaf[0] == '\0')                            /* can't create the root */
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
+      return;
+   }
+
+   if (Toolbox_Send_Prep(leaf) != 0)              /* opens/creates on the SD card */
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_OBJECT_IN_USE;
+      return;
+   }
+
+   mfh = AllocVec(sizeof(struct MyFH), MEMF_CLEAR | MEMF_PUBLIC);
+   if (!mfh)
+   {
+      Toolbox_Send_End();                          /* close the prepared file */
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_NO_FREE_STORE;
+      return;
+   }
+   mfh->isWrite = 1;
+   fh->fh_Arg1 = (LONG)mfh;
+   pkt->dp_Res1 = DOSTRUE;
+   pkt->dp_Res2 = 0;
+}
+
+static void doWrite(struct DosPacket *pkt)
+{
+   struct MyFH *mfh = (struct MyFH *)pkt->dp_Arg1;
+   UBYTE *src = (UBYTE *)pkt->dp_Arg2;
+   ULONG len = (ULONG)pkt->dp_Arg3;
+   ULONG done = 0;
+
+   if (!mfh || !mfh->isWrite)
+   {
+      pkt->dp_Res1 = -1;
+      pkt->dp_Res2 = ERROR_INVALID_LOCK;
+      return;
+   }
+
+   while (done < len)                              /* fill 512-byte blocks, flush each */
+   {
+      ULONG space = 512 - mfh->wbuflen;
+      ULONG n = len - done;
+      if (n > space)
+         n = space;
+      CopyMem(src + done, mfh->wbuf + mfh->wbuflen, n);
+      mfh->wbuflen += n;
+      done += n;
+      if (mfh->wbuflen == 512)
+      {
+         if (Toolbox_Send_Block(mfh->wblock, mfh->wbuf, 512) != 0)
+         {
+            pkt->dp_Res1 = -1;
+            pkt->dp_Res2 = ERROR_DISK_FULL;
+            return;
+         }
+         mfh->wblock++;
+         mfh->wbuflen = 0;
+      }
+   }
+   pkt->dp_Res1 = (LONG)len;
    pkt->dp_Res2 = 0;
 }
 
@@ -507,7 +596,9 @@ LONG handlerMain(void)
          case ACTION_EXAMINE_OBJECT: doExamineObject(pkt); break;
          case ACTION_EXAMINE_NEXT:   doExamineNext(pkt); break;
          case ACTION_FINDINPUT:      doFindInput(pkt); break;
+         case ACTION_FINDOUTPUT:     doFindOutput(pkt); break;
          case ACTION_READ:           doRead(pkt); break;
+         case ACTION_WRITE:          doWrite(pkt); break;
          case ACTION_SEEK:           doSeek(pkt); break;
          case ACTION_END:            doEnd(pkt); break;
          case ACTION_INFO:           doInfo(pkt, (struct InfoData *)BADDR((BPTR)pkt->dp_Arg2)); break;
@@ -518,9 +609,17 @@ LONG handlerMain(void)
             running = 0;
             break;
 
-         /* ---- Phase 4 (write path): ACTION_FINDOUTPUT, ACTION_WRITE ----
-          * ---- Unsupported (no firmware command): DELETE_OBJECT,
-          *      RENAME_OBJECT, SET_PROTECT, SET_COMMENT, SET_DATE, CREATE_DIR */
+         /* Firmware has no delete/rename/metadata ops -> fail tools gracefully. */
+         case ACTION_DELETE_OBJECT:
+            pkt->dp_Res2 = ERROR_DELETE_PROTECTED;
+            break;
+         case ACTION_RENAME_OBJECT:
+         case ACTION_SET_PROTECT:
+         case ACTION_SET_COMMENT:
+         case ACTION_SET_DATE:
+            pkt->dp_Res2 = ERROR_WRITE_PROTECTED;
+            break;
+
          default:
             pkt->dp_Res1 = DOSFALSE;
             pkt->dp_Res2 = ERROR_ACTION_NOT_KNOWN;
