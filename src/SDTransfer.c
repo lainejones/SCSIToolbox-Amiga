@@ -544,28 +544,38 @@ void format_size(char *buffer, int length, ULONG size)
    buffer[length - 1] = '\0';
 }
 
+/* Per-node display strings. LBNCA_CopyText proved unreliable with stack
+   buffers (garbled names on hardware, 2026-08-06) - like LBNCA_Integer, don't
+   trust it: give every node a pointer that stays valid until the next refresh. */
+#define MAX_NODES 128
+static char gNodeText[MAX_NODES][40];
+static int gNodeCount = 0;
+
 /* Add an entry to the browser. kind: NODE_DIR (shown with a trailing "/"),
    NODE_FILE, or NODE_PARENT (shown as "/"). */
 BOOL AddListBrowserNode(ULONG kind, STRPTR filename)
 {
   struct Node *node;
-  char display[40];
+  char *display;
   struct TagItem tags[] = {
       {LBNA_Generation,    2},
       {LBNA_Column,        0},
-      {LBNCA_Text,         (ULONG)display},
+      {LBNCA_Text,         0},
       {LBNCA_Justification,LCJ_LEFT},
-      {LBNCA_CopyText,     TRUE},
-      {LBNCA_MaxChars,     100},
       {LBNA_UserData,      kind},
       {TAG_END,            0}
   };
-  strncpy(display, filename, sizeof(display) - 2);
-  display[sizeof(display) - 2] = '\0';
+  if (gNodeCount >= MAX_NODES)
+     return FALSE;
+  display = gNodeText[gNodeCount];
+  strncpy(display, filename, 38);
+  display[38 - 1] = '\0';
   if (kind == NODE_DIR)
      strcat(display, "/");
+  tags[2].ti_Data = (ULONG)display;
   if((node = AllocListBrowserNodeA(2, tags)))
   {
+    gNodeCount++;
     AddTail(&gb_List,node);
   }
   return (BOOL)( node ? TRUE : FALSE );
@@ -579,6 +589,7 @@ BOOL RefreshFileList(void)
    struct FileEntry *file;
 
    FreeListBrowserNodes();
+   gNodeCount = 0;
 
    file = Toolbox_List_Files(0);
    if (!file && filecount < 0)
