@@ -348,6 +348,21 @@ length, padded with zeros) — floods the console; redirect to a file and Search
 subfolder, SDTransfer navigation, SHARED: deep paths) — blocked on updating the
 BlueSCSI's firmware to v2026.04.27+. Everything else is done.
 
+**Retest after device firmware update (2026-08-06 afternoon):** the A1200's
+device is actually a **ZuluSCSI** (SDTransfer shows the Zulu logo; INQUIRY
+matches). Laine flashed its latest firmware — capabilities STILL 0x03, API 0:
+**ZuluSCSI's toolbox firmware does not implement the working-dir subcommands**
+(they're a BlueSCSI v2026.04.27 feature). Subdir testing needs a real BlueSCSI
+on that firmware, or a future ZuluSCSI release that adopts the extension.
+
+**SDTransfer garbled-names bug (found by Laine, fixed + HW-verified same day):**
+the 1.3 dir-aware node code passed a stack buffer as `LBNCA_Text` with
+`LBNCA_CopyText=TRUE` — on real hardware the text is NOT copied and rows render
+stale stack memory. **Add LBNCA_CopyText to the "do not trust" list next to
+LBNCA_Integer.** Fix: static per-node text buffers (`gNodeText[128][40]`),
+pointers valid until the next refresh; copy tags dropped. Verified clean on the
+A1200 (launched from PI0:, all names render).
+
 ---
 
 ## SCSIToolbox-Amiga fork (branch `scsitoolbox-amiga`)
