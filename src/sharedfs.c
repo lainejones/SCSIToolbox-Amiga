@@ -28,8 +28,14 @@
  * (FINDOUTPUT/WRITE) and the firmware-unsupported ops (DELETE/RENAME/...) are
  * still stubbed -> Phase 4.
  *
- * Flat folder model (the shared dir has no subdirs over this protocol): the
- * only directory is the root; everything else is a file in it.
+ * PHASE 6 (firmware v2026.04.27+): subdirectories via the working-directory
+ * metadata subcommands (SET/GET_WORKING_DIR, CAP_SET_WORKING_DIR). Locks carry
+ * a path relative to the share root; every directory-scoped operation first
+ * points the device's (global, persistent) working dir at gBaseDir/rel. On
+ * older firmware everything degrades to the previous flat model. The firmware
+ * caps SET_WORKING_DIR at 63 chars, which bounds base-dir + tree depth.
+ * NOTE: the working dir is device-global - don't run SDTransfer (or another
+ * navigating client) on the same unit while SHARED: is mounted.
  *
  * Startup convention + FileInfoBlock/lock details verified against fat95-3.23
  * (src/fat95.s): fib_FileName is a BCPL string (length byte + chars);
@@ -62,15 +68,27 @@ static BPTR gVolBptr = 0;             /* BPTR to our volume DosList node */
 static struct DosList *gVol = NULL;   /* DLT_VOLUME node (Workbench disk icon) */
 static LONG gUnit = 0;
 
+/* Working-directory state (CAP_SET_WORKING_DIR firmware). gBaseDir is the
+   device default (e.g. "/shared"); relative paths hang below it. gCurAbs
+   mirrors what the device's working dir was last set to, so navTo can skip
+   redundant SET commands. gListedDir says which relative dir the global
+   'files' array currently describes. */
+static int gHaveDirs = 0;
+static char gBaseDir[80];
+static char gCurAbs[80];
+static char gListedDir[64];
+static int gListedValid = 0;
+
 /* A lock = a FileLock plus our per-object bookkeeping (fl_ must be first). */
 struct MyLock
 {
    struct FileLock fl;
-   LONG  isFile;      /* 0 = root dir, 1 = file */
-   LONG  index;       /* toolbox file index (file) */
+   LONG  isFile;      /* 0 = directory, 1 = file */
+   LONG  index;       /* toolbox file index within its dir (file) */
    ULONG fsize;       /* file size in bytes (file) */
-   LONG  exNext;      /* EXAMINE_NEXT cursor (root dir) */
-   char  name[40];    /* file leaf name (file) */
+   LONG  exNext;      /* EXAMINE_NEXT cursor (dir) */
+   char  dir[64];     /* rel path: the dir itself (dir) / parent dir (file) */
+   char  name[40];    /* leaf name ("" = root) */
 };
 
 /* An open file. Read mode uses index/fsize/pos; write mode streams 512-byte
@@ -78,6 +96,7 @@ struct MyLock
 struct MyFH
 {
    LONG  isWrite;     /* 0 = read, 1 = write */
+   char  dir[64];     /* rel dir the file lives in (working dir for reads) */
    /* read */
    LONG  index;
    ULONG fsize;
@@ -143,9 +162,200 @@ static void leafFromBStr(BPTR bname, char *out, int max)
    out[j] = '\0';
 }
 
+/* ---- relative-path helpers --------------------------------------------- */
+
+/* Strip the last component of a rel path in place ("a/b" -> "a", "a" -> ""). */
+static void parentOf(char *dir)
+{
+   int i = cLen(dir);
+   while (i > 0 && dir[i - 1] != '/')
+      i--;
+   if (i > 0)
+      i--;                                        /* also drop the '/' */
+   dir[i] = '\0';
+}
+
+/* Last component of a rel path ("a/b" -> "b", "" -> ""). */
+static const char *leafOf(const char *dir)
+{
+   int i = cLen(dir);
+   while (i > 0 && dir[i - 1] != '/')
+      i--;
+   return dir + i;
+}
+
+/* Append a component to a rel path ("a" + "b" -> "a/b"). 0 or DOS error. */
+static LONG catAppend(char *dir, const char *comp, int max)
+{
+   int l = cLen(dir);
+   if (l + (l ? 1 : 0) + cLen(comp) >= max)
+      return ERROR_INVALID_COMPONENT_NAME;
+   if (l)
+      dir[l++] = '/';
+   cCopy(dir + l, comp, max - l);
+   return 0;
+}
+
+/* ---- device working-directory navigation ------------------------------- */
+
+/* Point the device's working directory at gBaseDir/rel. Without the working-
+   dir capability only the root ("") exists. Returns 0 or a DOS error. */
+static LONG navTo(const char *rel)
+{
+   char abs[160];
+
+   if (!gHaveDirs)
+      return rel[0] ? ERROR_DIR_NOT_FOUND : 0;
+
+   cCopy(abs, gBaseDir, sizeof(abs));
+   if (rel[0])
+   {
+      int l = cLen(abs);
+      if (l + 1 + cLen(rel) >= (int)sizeof(abs))
+         return ERROR_INVALID_COMPONENT_NAME;
+      abs[l] = '/';
+      cCopy(abs + l + 1, rel, sizeof(abs) - l - 1);
+   }
+   if (cLen(abs) > TOOLBOX_MAX_WD_PATH - 1)       /* firmware 63-char limit */
+      return ERROR_INVALID_COMPONENT_NAME;
+
+   if (Stricmp((STRPTR)abs, (STRPTR)gCurAbs) == 0)
+      return 0;
+   if (Toolbox_Set_Working_Dir(abs) != 0)
+      return ERROR_DIR_NOT_FOUND;
+   cCopy(gCurAbs, abs, sizeof(gCurAbs));
+   gListedValid = 0;
+   return 0;
+}
+
+/* Make the global 'files' array describe relative dir 'rel' (cached). */
+static LONG listDir(const char *rel)
+{
+   LONG err;
+
+   if (gListedValid && Stricmp((STRPTR)gListedDir, (STRPTR)rel) == 0)
+      return 0;
+   gListedValid = 0;
+   if ((err = navTo(rel)) != 0)
+      return err;
+   Toolbox_List_Files(0);
+   if (filecount < 0)
+      return ERROR_NOT_A_DOS_DISK;
+   cCopy(gListedDir, rel, sizeof(gListedDir));
+   gListedValid = 1;
+   return 0;
+}
+
+/* Find 'leaf' in relative dir 'dirRel' (case-insensitive). Returns 1 found
+   (type/idx/size filled), 0 not found, or a negated DOS error. On flat
+   (no-capability) firmware, directory entries are invisible as before. */
+static LONG findEntry(const char *dirRel, const char *leaf,
+                      LONG *type, LONG *idx, ULONG *size)
+{
+   LONG err = listDir(dirRel);
+   int i;
+
+   if (err)
+      return -err;
+   for (i = 0; i < filecount; i++)
+   {
+      if (!gHaveDirs && files[i].Type != BLUESCSI_FILE)
+         continue;
+      if (Stricmp((STRPTR)files[i].Name, (STRPTR)leaf) == 0)
+      {
+         *type = files[i].Type;
+         *idx = files[i].Index;
+         *size = files[i].Size;
+         return 1;
+      }
+   }
+   return 0;
+}
+
+/* Resolve an AmigaDOS path (BSTR 'bname', relative to lock 'base') into a
+   validated parent dir 'outDir' (rel to the share root, all intermediate
+   components checked to exist) and an unvalidated final component 'outLeaf'
+   ("" = the directory itself). AmigaDOS semantics: ':' resets to the root,
+   each leading (or doubled) '/' goes up one level. 0 or DOS error. */
+static LONG resolvePath(struct MyLock *base, BPTR bname,
+                        char *outDir, char *outLeaf)
+{
+   UBYTE *bp = (UBYTE *)BADDR(bname);
+   int len = bp ? bp[0] : 0;
+   int i = 0, j;
+
+   if (base)
+      cCopy(outDir, base->dir, 64);
+   else
+      outDir[0] = '\0';
+   outLeaf[0] = '\0';
+
+   for (j = 0; j < len; j++)
+   {
+      if (bp[1 + j] == ':')
+      {
+         i = j + 1;
+         outDir[0] = '\0';
+      }
+   }
+
+   while (i < len && bp[1 + i] == '/')            /* leading '/' = parent */
+   {
+      if (outDir[0] == '\0')
+         return ERROR_OBJECT_NOT_FOUND;           /* above the root */
+      parentOf(outDir);
+      i++;
+   }
+
+   while (i < len)
+   {
+      char comp[40];
+      int cl = 0;
+      int more;
+
+      while (i < len && bp[1 + i] != '/')
+      {
+         if (cl < (int)sizeof(comp) - 1)
+            comp[cl++] = (char)bp[1 + i];
+         i++;
+      }
+      comp[cl] = '\0';
+      more = (i < len);
+      if (more)
+         i++;                                     /* skip the '/' */
+
+      if (!more)
+      {
+         cCopy(outLeaf, comp, 40);
+         break;
+      }
+
+      if (cl == 0)                                /* "a//b": extra '/' = parent */
+      {
+         if (outDir[0] == '\0')
+            return ERROR_OBJECT_NOT_FOUND;
+         parentOf(outDir);
+      }
+      else
+      {
+         LONG t, idx;
+         ULONG sz;
+         LONG r = findEntry(outDir, comp, &t, &idx, &sz);
+         if (r < 0)
+            return -r;
+         if (r == 0 || t != BLUESCSI_DIR)
+            return ERROR_DIR_NOT_FOUND;
+         if (catAppend(outDir, comp, 64) != 0)
+            return ERROR_INVALID_COMPONENT_NAME;
+      }
+   }
+   return 0;
+}
+
 /* ---- locks ------------------------------------------------------------- */
 
-static BPTR makeLock(LONG isFile, LONG index, ULONG fsize, const char *name)
+static BPTR makeLock(LONG isFile, LONG index, ULONG fsize,
+                     const char *dir, const char *name)
 {
    struct MyLock *lk = AllocVec(sizeof(struct MyLock), MEMF_CLEAR | MEMF_PUBLIC);
    if (!lk)
@@ -158,7 +368,9 @@ static BPTR makeLock(LONG isFile, LONG index, ULONG fsize, const char *name)
    lk->index = index;
    lk->fsize = fsize;
    lk->exNext = 0;
-   if (isFile && name)
+   if (dir)
+      cCopy(lk->dir, dir, sizeof(lk->dir));
+   if (name)
       cCopy(lk->name, name, sizeof(lk->name));
    return MKBADDR(lk);
 }
@@ -170,59 +382,54 @@ static void freeLock(BPTR lock)
       FreeVec(lk);
 }
 
-/* Look up a file by name (case-insensitive). Re-lists the shared folder.
-   Returns 1 and fills idx and size on success, 0 if not found. */
-static int findFile(const char *name, LONG *idx, ULONG *size)
-{
-   struct FileEntry *list = Toolbox_List_Files(0);
-   int i;
-   if (!list)
-      return 0;
-   for (i = 0; i < filecount; i++)
-   {
-      if (list[i].Type == BLUESCSI_FILE && Stricmp((STRPTR)list[i].Name, (STRPTR)name) == 0)
-      {
-         *idx = list[i].Index;
-         *size = list[i].Size;
-         return 1;
-      }
-   }
-   return 0;
-}
-
 /* ---- packet handlers --------------------------------------------------- */
 
 static void doLocateObject(struct DosPacket *pkt)
 {
+   struct MyLock *base = (struct MyLock *)BADDR((BPTR)pkt->dp_Arg1);
+   char dir[64];
    char leaf[40];
-   LONG idx;
+   LONG err, t, idx;
    ULONG size;
+   BPTR lk;
 
-   leafFromBStr(pkt->dp_Arg2, leaf, sizeof(leaf));
-
-   if (leaf[0] == '\0')                          /* root */
+   if ((err = resolvePath(base, pkt->dp_Arg2, dir, leaf)) != 0)
    {
-      BPTR lk = makeLock(0, 0, 0, NULL);
-      if (lk)
-         { pkt->dp_Res1 = (LONG)lk; pkt->dp_Res2 = 0; }
-      else
-         { pkt->dp_Res1 = 0; pkt->dp_Res2 = ERROR_NO_FREE_STORE; }
+      pkt->dp_Res1 = 0;
+      pkt->dp_Res2 = err;
       return;
    }
 
-   if (findFile(leaf, &idx, &size))
+   if (leaf[0] == '\0')                          /* the directory itself */
    {
-      BPTR lk = makeLock(1, idx, size, leaf);
-      if (lk)
-         { pkt->dp_Res1 = (LONG)lk; pkt->dp_Res2 = 0; }
-      else
-         { pkt->dp_Res1 = 0; pkt->dp_Res2 = ERROR_NO_FREE_STORE; }
+      lk = makeLock(0, 0, 0, dir, leafOf(dir));
+      pkt->dp_Res1 = (LONG)lk;
+      pkt->dp_Res2 = lk ? 0 : ERROR_NO_FREE_STORE;
+      return;
+   }
+
+   {
+      LONG r = findEntry(dir, leaf, &t, &idx, &size);
+      if (r < 0)
+         { pkt->dp_Res1 = 0; pkt->dp_Res2 = -r; return; }
+      if (r == 0)
+         { pkt->dp_Res1 = 0; pkt->dp_Res2 = ERROR_OBJECT_NOT_FOUND; return; }
+   }
+
+   if (t == BLUESCSI_DIR)
+   {
+      char full[64];
+      cCopy(full, dir, sizeof(full));
+      if (catAppend(full, leaf, sizeof(full)) != 0)
+         { pkt->dp_Res1 = 0; pkt->dp_Res2 = ERROR_INVALID_COMPONENT_NAME; return; }
+      lk = makeLock(0, 0, 0, full, leaf);
    }
    else
    {
-      pkt->dp_Res1 = 0;
-      pkt->dp_Res2 = ERROR_OBJECT_NOT_FOUND;
+      lk = makeLock(1, idx, size, dir, leaf);
    }
+   pkt->dp_Res1 = (LONG)lk;
+   pkt->dp_Res2 = lk ? 0 : ERROR_NO_FREE_STORE;
 }
 
 static void doCopyDir(struct DosPacket *pkt)
@@ -230,7 +437,7 @@ static void doCopyDir(struct DosPacket *pkt)
    struct MyLock *src = (struct MyLock *)BADDR((BPTR)pkt->dp_Arg1);
    BPTR lk;
    if (!src) { pkt->dp_Res1 = 0; return; }       /* dup of root (0) -> root */
-   lk = makeLock(src->isFile, src->index, src->fsize, src->name);
+   lk = makeLock(src->isFile, src->index, src->fsize, src->dir, src->name);
    pkt->dp_Res1 = (LONG)lk;
    pkt->dp_Res2 = lk ? 0 : ERROR_NO_FREE_STORE;
 }
@@ -238,18 +445,33 @@ static void doCopyDir(struct DosPacket *pkt)
 static void doParent(struct DosPacket *pkt)
 {
    struct MyLock *lk = (struct MyLock *)BADDR((BPTR)pkt->dp_Arg1);
-   if (lk && lk->isFile)                          /* file -> root lock */
-      pkt->dp_Res1 = (LONG)makeLock(0, 0, 0, NULL);
-   else                                           /* root -> no parent */
-      pkt->dp_Res1 = 0;
+   BPTR par = 0;
+
    pkt->dp_Res2 = 0;
+   if (lk && lk->isFile)                          /* file -> its dir */
+   {
+      par = makeLock(0, 0, 0, lk->dir, leafOf(lk->dir));
+      if (!par)
+         pkt->dp_Res2 = ERROR_NO_FREE_STORE;
+   }
+   else if (lk && lk->dir[0])                     /* subdir -> parent dir */
+   {
+      char pdir[64];
+      cCopy(pdir, lk->dir, sizeof(pdir));
+      parentOf(pdir);
+      par = makeLock(0, 0, 0, pdir, leafOf(pdir));
+      if (!par)
+         pkt->dp_Res2 = ERROR_NO_FREE_STORE;
+   }
+   /* root (or zero lock) -> no parent */
+   pkt->dp_Res1 = (LONG)par;
 }
 
-static void fillDirFib(struct FileInfoBlock *fib, const char *name)
+static void fillDirFib(struct FileInfoBlock *fib, const char *name, LONG entrytype)
 {
    fib->fib_DiskKey = 0;
-   fib->fib_DirEntryType = 1;                     /* root dir */
-   fib->fib_EntryType = 1;
+   fib->fib_DirEntryType = entrytype;             /* 1 = root, 2 = user dir */
+   fib->fib_EntryType = entrytype;
    putBStr((UBYTE *)fib->fib_FileName, name, 30);
    fib->fib_Protection = 0;
    fib->fib_Size = 0;
@@ -278,12 +500,13 @@ static void doExamineObject(struct DosPacket *pkt)
    {
       fillFileFib(fib, lk->name, lk->fsize);
    }
-   else                                           /* root dir */
+   else                                           /* a directory */
    {
-      fillDirFib(fib, "SHARED");
+      const char *nm = (lk && lk->name[0]) ? lk->name : "SHARED";
+      fillDirFib(fib, nm, (lk && lk->dir[0]) ? 2 : 1);
       if (lk)
          lk->exNext = 0;                          /* reset directory scan */
-      Toolbox_List_Files(0);                      /* refresh list for ExNext */
+      listDir(lk ? lk->dir : "");                 /* prime list for ExNext */
    }
    pkt->dp_Res1 = DOSTRUE;
    pkt->dp_Res2 = 0;
@@ -293,10 +516,9 @@ static void doExamineNext(struct DosPacket *pkt)
 {
    struct MyLock *lk = (struct MyLock *)BADDR((BPTR)pkt->dp_Arg1);
    struct FileInfoBlock *fib = (struct FileInfoBlock *)BADDR((BPTR)pkt->dp_Arg2);
-   struct FileEntry *list = files;                /* cached by ExamineObject */
    LONG pos;
 
-   if (!lk || lk->isFile || !list)
+   if (!lk || lk->isFile || listDir(lk->dir) != 0)
    {
       pkt->dp_Res1 = DOSFALSE;
       pkt->dp_Res2 = ERROR_NO_MORE_ENTRIES;
@@ -304,8 +526,10 @@ static void doExamineNext(struct DosPacket *pkt)
    }
 
    pos = lk->exNext;
-   while (pos < filecount && list[pos].Type != BLUESCSI_FILE)
-      pos++;                                       /* skip non-file entries */
+   while (pos < filecount &&
+          !(files[pos].Type == BLUESCSI_FILE ||
+            (gHaveDirs && files[pos].Type == BLUESCSI_DIR)))
+      pos++;                                       /* skip unusable entries */
 
    if (pos >= filecount)
    {
@@ -314,7 +538,10 @@ static void doExamineNext(struct DosPacket *pkt)
       return;
    }
 
-   fillFileFib(fib, list[pos].Name, list[pos].Size);
+   if (files[pos].Type == BLUESCSI_FILE)
+      fillFileFib(fib, files[pos].Name, files[pos].Size);
+   else
+      fillDirFib(fib, files[pos].Name, 2);
    lk->exNext = pos + 1;
    pkt->dp_Res1 = DOSTRUE;
    pkt->dp_Res2 = 0;
@@ -323,16 +550,37 @@ static void doExamineNext(struct DosPacket *pkt)
 static void doFindInput(struct DosPacket *pkt)
 {
    struct FileHandle *fh = (struct FileHandle *)BADDR((BPTR)pkt->dp_Arg1);
+   struct MyLock *base = (struct MyLock *)BADDR((BPTR)pkt->dp_Arg2);
+   char dir[64];
    char leaf[40];
-   LONG idx;
+   LONG err, t, idx;
    ULONG size;
    struct MyFH *mfh;
+   LONG r;
 
-   leafFromBStr(pkt->dp_Arg3, leaf, sizeof(leaf));
-   if (leaf[0] == '\0' || !findFile(leaf, &idx, &size))
+   if ((err = resolvePath(base, pkt->dp_Arg3, dir, leaf)) != 0)
    {
       pkt->dp_Res1 = DOSFALSE;
-      pkt->dp_Res2 = ERROR_OBJECT_NOT_FOUND;
+      pkt->dp_Res2 = err;
+      return;
+   }
+   if (leaf[0] == '\0')
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
+      return;
+   }
+   r = findEntry(dir, leaf, &t, &idx, &size);
+   if (r <= 0)
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = (r < 0) ? -r : ERROR_OBJECT_NOT_FOUND;
+      return;
+   }
+   if (t != BLUESCSI_FILE)
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
       return;
    }
 
@@ -346,6 +594,7 @@ static void doFindInput(struct DosPacket *pkt)
    mfh->index = idx;
    mfh->fsize = size;
    mfh->pos = 0;
+   cCopy(mfh->dir, dir, sizeof(mfh->dir));
    fh->fh_Arg1 = (LONG)mfh;
    pkt->dp_Res1 = DOSTRUE;
    pkt->dp_Res2 = 0;
@@ -372,6 +621,12 @@ static void doRead(struct DosPacket *pkt)
    if (len > mfh->fsize - mfh->pos)
       len = mfh->fsize - mfh->pos;
 
+   if (navTo(mfh->dir) != 0)                       /* GET_FILE indexes are per-dir */
+   {
+      pkt->dp_Res1 = -1;
+      pkt->dp_Res2 = ERROR_DIR_NOT_FOUND;
+      return;
+   }
    got = Toolbox_Get_Bytes((int)mfh->index, mfh->pos, buf, len);
    if (got < 0)
    {
@@ -428,6 +683,7 @@ static void doEnd(struct DosPacket *pkt)
          if (mfh->wbuflen > 0)
             Toolbox_Send_Block(mfh->wblock, mfh->wbuf, (int)mfh->wbuflen);
          Toolbox_Send_End();
+         gListedValid = 0;                         /* new file appears now */
       }
       FreeVec(mfh);
    }
@@ -438,11 +694,34 @@ static void doEnd(struct DosPacket *pkt)
 static void doFindOutput(struct DosPacket *pkt)
 {
    struct FileHandle *fh = (struct FileHandle *)BADDR((BPTR)pkt->dp_Arg1);
+   struct MyLock *base = (struct MyLock *)BADDR((BPTR)pkt->dp_Arg2);
+   char dir[64];
    char leaf[40];
+   LONG err, t, idx;
+   ULONG size;
    struct MyFH *mfh;
+   LONG r;
 
-   leafFromBStr(pkt->dp_Arg3, leaf, sizeof(leaf));
+   if ((err = resolvePath(base, pkt->dp_Arg3, dir, leaf)) != 0)
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = err;
+      return;
+   }
    if (leaf[0] == '\0')                            /* can't create the root */
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
+      return;
+   }
+   r = findEntry(dir, leaf, &t, &idx, &size);      /* also navigates to 'dir' */
+   if (r < 0)
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = -r;
+      return;
+   }
+   if (r == 1 && t != BLUESCSI_FILE)               /* name taken by a subdir */
    {
       pkt->dp_Res1 = DOSFALSE;
       pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
@@ -455,6 +734,7 @@ static void doFindOutput(struct DosPacket *pkt)
       pkt->dp_Res2 = ERROR_OBJECT_IN_USE;
       return;
    }
+   gListedValid = 0;                               /* dir listing now stale */
 
    mfh = AllocVec(sizeof(struct MyFH), MEMF_CLEAR | MEMF_PUBLIC);
    if (!mfh)
@@ -465,6 +745,7 @@ static void doFindOutput(struct DosPacket *pkt)
       return;
    }
    mfh->isWrite = 1;
+   cCopy(mfh->dir, dir, sizeof(mfh->dir));
    fh->fh_Arg1 = (LONG)mfh;
    pkt->dp_Res1 = DOSTRUE;
    pkt->dp_Res2 = 0;
@@ -565,6 +846,17 @@ LONG handlerMain(void)
       goto reply_and_exit;
    }
 
+   /* Subdirectory support (firmware v2026.04.27+): learn the device's default
+      shared dir so relative paths can be composed below it. */
+   if (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR)
+   {
+      if (Toolbox_Get_Working_Dir(gBaseDir, sizeof(gBaseDir)) == 0 && gBaseDir[0])
+      {
+         gHaveDirs = 1;
+         cCopy(gCurAbs, gBaseDir, sizeof(gCurAbs));
+      }
+   }
+
    /* Create a DLT_VOLUME node so Workbench shows SHARED: as a disk and locks
       have a real volume to point at. Falls back to the device node if it fails. */
    gVol = MakeDosEntry("SHARED", DLT_VOLUME);
@@ -625,15 +917,23 @@ LONG handlerMain(void)
             running = 0;
             break;
 
-         /* Firmware has no delete/rename/metadata ops -> fail tools gracefully. */
+         /* Firmware has no delete/rename/mkdir ops -> fail gracefully. */
          case ACTION_DELETE_OBJECT:
             pkt->dp_Res2 = ERROR_DELETE_PROTECTED;
             break;
          case ACTION_RENAME_OBJECT:
+         case ACTION_CREATE_DIR:
+            pkt->dp_Res2 = ERROR_WRITE_PROTECTED;
+            break;
+
+         /* No protection/comment/date storage either, but Copy clones these
+            after writing and treats a failure as the whole copy failing
+            ("file is write protected", verified on hardware 2026-08-06) -
+            so accept and discard them like other metadata-less filesystems. */
          case ACTION_SET_PROTECT:
          case ACTION_SET_COMMENT:
          case ACTION_SET_DATE:
-            pkt->dp_Res2 = ERROR_WRITE_PROTECTED;
+            pkt->dp_Res1 = DOSTRUE;
             break;
 
          default:
@@ -657,6 +957,8 @@ LONG handlerMain(void)
       FreeDosEntry(gVol);
       gVol = NULL;
    }
+   if (gHaveDirs)
+      Toolbox_Set_Working_Dir("");     /* leave the device at its default dir */
    scsi_cleanup();
 
 reply_and_exit:

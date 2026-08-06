@@ -5,6 +5,8 @@
  * Fixed the SEND (upload) path in Toolbox_PutFileByName — corrected SCSI data
  * direction (SCSIF_WRITE, not SCSIF_READ) and per-command transfer lengths so
  * SEND_FILE_PREP/10/END actually work against BlueSCSI/ZuluSCSI firmware.
+ * Modified 2026-08-06: added SETDIR/GETDIR (working-directory support, firmware
+ * v2026.04.27+ metadata subcommands 0x02/0x03).
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,10 +48,13 @@
 // 0xD9 Metadata subcommands (CDB[1])
 #define BLUESCSI_TOOLBOX_SUBCMD_LIST_DEVICES 0x00
 #define BLUESCSI_TOOLBOX_SUBCMD_GET_CAPABILITIES 0x01
+#define BLUESCSI_TOOLBOX_SUBCMD_SET_WORKING_DIR 0x02
+#define BLUESCSI_TOOLBOX_SUBCMD_GET_WORKING_DIR 0x03
 
 // Capability flags
 #define BLUESCSI_TOOLBOX_CAP_LARGE_TRANSFERS 0x01
 #define BLUESCSI_TOOLBOX_CAP_LARGE_SEND 0x02
+#define BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR 0x04
 
 #define SCSI_CMD_INQ 0x12
 
@@ -57,7 +62,7 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-static const char ver[] = "$VER: BlueSCSIToolbox 1.4 (8.6.2026)";
+static const char ver[] = "$VER: BlueSCSIToolbox 1.5 (6.8.2026)";
 
 int Toolbox_List_Files(int cdrom);
 int Toolbox_List_Devices(void);
@@ -66,6 +71,8 @@ int Toolbox_Count_Files(int cdrom);
 ULONG Toolbox_GetFileByName(char *destination, char *source);
 int Toolbox_PutFileByName(char *destination, char *source);
 int Toolbox_List_CDs(void);
+int Toolbox_SetWorkingDir(char *path);
+int Toolbox_GetWorkingDir(char *buf, int buflen);
 void Toolbox_Show_files(void);
 void Toolbox_Next_CD(int index);
 void Toolbox_Debug(int debugon);
@@ -112,7 +119,7 @@ struct FileEntry *files = NULL;
 int filecount = 0;
 
 // ReadArgs template
-char *template = "DEVICE/K,UNIT/K/N,DIR=LIST/S,SEND/K,RECEIVE/K,LISTDEVICES/S,LISTCDS/S,SETCD/K/N,SETDEBUG/K/N,INFO/S";
+char *template = "DEVICE/K,UNIT/K/N,DIR=LIST/S,SEND/K,RECEIVE/K,LISTDEVICES/S,LISTCDS/S,SETCD/K/N,SETDEBUG/K/N,INFO/S,SETDIR/K,GETDIR/S";
 
 enum ToolboxCommand
 {
@@ -138,7 +145,9 @@ enum ToolboxParams
    LISTCDS,
    SETCD,
    SETDEBUG,
-   INFO
+   INFO,
+   SETDIR,
+   GETDIR
 };
 
 int main(int argc, char* argv[])
@@ -148,9 +157,12 @@ int main(int argc, char* argv[])
    int capabilities_ok;
    char filename[256];
    char progname[256];
-   LONG params[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   char workdir[256];
+   LONG params[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    LONG nextcd;
    LONG debugon;
+   int setdir = 0;
+   int getdir = 0;
 
    GetProgramName(progname, sizeof(progname));
 
@@ -206,6 +218,19 @@ int main(int argc, char* argv[])
       {
          toolboxCommand = TOOLBOX_INFO;
       }
+      if (params[SETDIR])
+      {
+         /* Not a command of its own: applied before whatever else runs, and
+            the override persists on the device until reset or power-off.
+            SETDIR="" resets to the firmware default directory. */
+         setdir = 1;
+         strncpy(workdir, (char *)params[SETDIR], sizeof(workdir));
+         workdir[sizeof(workdir) - 1] = '\0';
+      }
+      if (params[GETDIR])
+      {
+         getdir = 1;
+      }
       FreeArgs(rd);
    }
    else
@@ -215,7 +240,7 @@ int main(int argc, char* argv[])
       return 5;
    }
 
-   if (toolboxCommand == TOOLBOX_NONE)
+   if (toolboxCommand == TOOLBOX_NONE && !setdir && !getdir)
    {
       SetIoErr(ERROR_REQUIRED_ARG_MISSING);
       PrintFault(IoErr(), progname);
@@ -265,6 +290,27 @@ int main(int argc, char* argv[])
    {
       PutStr("Toolbox API not available on this device\n");
       goto exit;
+   }
+
+   if (setdir)
+   {
+      if (!(scsi_capabilities & BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR))
+      {
+         PutStr("Working directory not supported by this firmware (needs v2026.04.27+)\n");
+         goto exit;
+      }
+      if (Toolbox_SetWorkingDir(workdir) != 0)
+      {
+         goto exit;
+      }
+   }
+   if (getdir)
+   {
+      char curdir[256];
+      if (Toolbox_GetWorkingDir(curdir, sizeof(curdir)) == 0)
+      {
+         Printf("Working directory: %s\n", (ULONG)curdir);
+      }
    }
 
    switch (toolboxCommand)
@@ -324,6 +370,13 @@ int main(int argc, char* argv[])
          PutStr("  Large transfers supported\n");
       if (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_LARGE_SEND)
          PutStr("  Large send supported\n");
+      if (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR)
+      {
+         char curdir[256];
+         PutStr("  Working directory supported\n");
+         if (Toolbox_GetWorkingDir(curdir, sizeof(curdir)) == 0)
+            Printf("  Working directory: %s\n", (ULONG)curdir);
+      }
       Toolbox_List_Devices();
       break;
    }
@@ -553,6 +606,64 @@ int Toolbox_GetCapabilities(void)
       scsi_apiVersion = scsi_data[0];
       scsi_capabilities = scsi_data[1];
    }
+   return 0;
+}
+
+/* Set the device's working directory (absolute SD path, e.g. "/shared/sub").
+ * "" resets to the firmware default. All file/CD ops then resolve against it,
+ * and it persists on the device until reset or power-off. Firmware caps the
+ * path at 63 chars (64-byte data phase). */
+int Toolbox_SetWorkingDir(char *path)
+{
+   UBYTE command[10] = {0};
+   int len = strlen(path);
+   int err;
+
+   if (len > 63)
+   {
+      PutStr("Path too long (max 63 characters)\n");
+      return -1;
+   }
+   memcpy(scsi_data, path, len);
+   scsi_data[len] = 0;      /* single NUL = reset to default */
+
+   command[0] = BLUESCSI_TOOLBOX_METADATA;
+   command[1] = BLUESCSI_TOOLBOX_SUBCMD_SET_WORKING_DIR;
+   command[8] = (UBYTE)(len + 1);
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, len + 1,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_WRITE | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld setting working directory\n", err);
+      return -1;
+   }
+   return 0;
+}
+
+/* Read the current effective working directory into buf. */
+int Toolbox_GetWorkingDir(char *buf, int buflen)
+{
+   UBYTE command[10] = {0};
+   int err;
+   int i;
+
+   command[0] = BLUESCSI_TOOLBOX_METADATA;
+   command[1] = BLUESCSI_TOOLBOX_SUBCMD_GET_WORKING_DIR;
+   command[8] = 255;        /* firmware pads the data phase to this length */
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, 255,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld reading working directory\n", err);
+      buf[0] = '\0';
+      return -1;
+   }
+
+   for (i = 0; i < buflen - 1 && i < 255 && scsi_data[i]; i++)
+      buf[i] = (char)scsi_data[i];
+   buf[i] = '\0';
    return 0;
 }
 

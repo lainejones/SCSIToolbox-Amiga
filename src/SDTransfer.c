@@ -1,6 +1,11 @@
 /*
  * Copyright (C) 2024 Paul Hill
  *
+ * Modified 2026-08-06 by Laine Jones (lainejones): part of SCSIToolbox-Amiga.
+ * Added SD-card subdirectory navigation (firmware v2026.04.27+ working-dir
+ * support): directories are listed with a trailing "/", the "/" entry goes up,
+ * and the Open/Download button descends into a selected directory.
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -42,10 +47,18 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-static const char ver[] = "$VER: SDTransfer 1.2 (18.5.2024)";
+static const char ver[] = "$VER: SDTransfer 1.3 (6.8.2026)";
+
+/* Node kinds stored in LBNA_UserData */
+#define NODE_DIR    0
+#define NODE_FILE   1
+#define NODE_PARENT 2
 
 void FreeListBrowserNodes(void);
-BOOL AddListBrowserNode(ULONG index, STRPTR filename);
+BOOL AddListBrowserNode(ULONG kind, STRPTR filename);
+BOOL RefreshFileList(void);
+int DirDescend(const char *name);
+int DirAscend(void);
 void progress(int pc);
 void getfilename(char *name, char *title);
 void format_size(char *buffer, int length, ULONG size);
@@ -59,6 +72,13 @@ struct MsgPort *AppPort;
 
 UBYTE scsi_dev[1024];
 LONG scsi_unit = -1;
+
+/* Working-directory navigation state (firmware CAP_SET_WORKING_DIR).
+   gBaseDir = the device default (e.g. "/shared"); gRelPath = where we are
+   below it ("" = top). */
+static int gHaveDirs = 0;
+static char gBaseDir[80];
+static char gRelPath[64];
 
 static char *readArgsTemplate = "DEVICE/K,UNIT/K/N";
 static char* appname = "SD Transfer";
@@ -106,7 +126,6 @@ int main(int argc, char **argv)
 {
    struct RDArgs *rd;
    LONG params[] = {0, 0};
-   struct FileEntry *files;
    char scsi_msg[50];
    APTR windowObj;
    Object *listBrowser;
@@ -246,6 +265,12 @@ int main(int argc, char **argv)
       goto exit;
    }
 
+   if (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR)
+   {
+      if (Toolbox_Get_Working_Dir(gBaseDir, sizeof(gBaseDir)) == 0 && gBaseDir[0])
+         gHaveDirs = 1;
+   }
+
    chip_logo_data = (UWORD *)AllocVec(LOGO_DATA_SIZE, MEMF_CHIP);
    if (chip_logo_data) {
       CopyMem(scsi_isZuluSCSI ? zuluscsi_logo_data : bluescsi_logo_data,
@@ -256,20 +281,7 @@ int main(int argc, char **argv)
    NewList(&gb_List);
 
    // Read the SD Card Files
-   files = Toolbox_List_Files(0);
-   if (files)
-   {
-      struct FileEntry *file = files;
-      while (file->Type >= 0)
-      {
-         if (file->Type == 1)    // Files only, folders not currently supported
-         {
-            AddListBrowserNode(file->Index, file->Name);
-         }
-         file++;
-      }
-   }
-   else
+   if (!RefreshFileList())
    {
       goto exit;
    }
@@ -335,7 +347,7 @@ int main(int argc, char **argv)
             ButtonObject,
                GA_ID, GID_DOWNLOAD,
                GA_RelVerify, TRUE,
-               GA_Text, "_Download",
+               GA_Text, "_Open / Download",
             End,
             CHILD_MinHeight, 20,
             CHILD_MaxHeight, 20,
@@ -398,17 +410,39 @@ int main(int argc, char **argv)
                         GetAttr(LISTBROWSER_SelectedNode, listBrowser, (ULONG*) &node);
                         if (node)
                         {
-                           // Get the filename
+                           // Get the filename and the entry kind
                            ULONG userdata;
+                           ULONG kind = NODE_FILE;
                            {
                               struct TagItem gtags[] = {
                                   {LBNA_Column,  0},
                                   {LBNCA_Text,   (ULONG)&userdata},
+                                  {LBNA_UserData,(ULONG)&kind},
                                   {TAG_DONE,     0}
                               };
                               GetListBrowserNodeAttrsA(node, gtags);
                            }
-                           if (userdata)
+                           if (userdata && kind != NODE_FILE)
+                           {
+                              // Directory navigation: rebuild the list
+                              int navres;
+                              SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
+                                             LISTBROWSER_Labels, ~0, TAG_END);
+                              if (kind == NODE_PARENT)
+                                 navres = DirAscend();
+                              else
+                                 navres = DirDescend((char *)userdata);
+                              if (navres == 0)
+                                 RefreshFileList();
+                              SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
+                                             LISTBROWSER_Labels, &gb_List, TAG_END);
+                              sprintf(fuelGaugeText, "Dir: /%s", gRelPath);
+                              SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
+                                             GA_Text, fuelGaugeText,
+                                             FUELGAUGE_Percent, FALSE,
+                                             TAG_END);
+                           }
+                           else if (userdata)
                            {
                               char *source = (char *) userdata;
                               char destination[MAXPATH];
@@ -471,6 +505,8 @@ int main(int argc, char **argv)
    }
 
 exit:
+   if (gHaveDirs && gRelPath[0])
+      Toolbox_Set_Working_Dir("");   /* leave the device at its default dir */
    if (chip_logo_data) FreeVec(chip_logo_data);
    scsi_cleanup();
 
@@ -508,25 +544,122 @@ void format_size(char *buffer, int length, ULONG size)
    buffer[length - 1] = '\0';
 }
 
-/* Add a filename to the browser */
-BOOL AddListBrowserNode(ULONG index, STRPTR filename)
+/* Add an entry to the browser. kind: NODE_DIR (shown with a trailing "/"),
+   NODE_FILE, or NODE_PARENT (shown as "/"). */
+BOOL AddListBrowserNode(ULONG kind, STRPTR filename)
 {
   struct Node *node;
+  char display[40];
   struct TagItem tags[] = {
       {LBNA_Generation,    2},
       {LBNA_Column,        0},
-      {LBNCA_Text,         (ULONG)filename},
+      {LBNCA_Text,         (ULONG)display},
       {LBNCA_Justification,LCJ_LEFT},
       {LBNCA_CopyText,     TRUE},
       {LBNCA_MaxChars,     100},
-      {LBNA_UserData,      (ULONG)index},
+      {LBNA_UserData,      kind},
       {TAG_END,            0}
   };
+  strncpy(display, filename, sizeof(display) - 2);
+  display[sizeof(display) - 2] = '\0';
+  if (kind == NODE_DIR)
+     strcat(display, "/");
   if((node = AllocListBrowserNodeA(2, tags)))
   {
     AddTail(&gb_List,node);
   }
   return (BOOL)( node ? TRUE : FALSE );
+}
+
+/* Rebuild gb_List from the device's current working directory. Returns FALSE
+   only on SCSI failure (an empty directory is fine). The listbrowser must be
+   detached (or not yet created) when this is called. */
+BOOL RefreshFileList(void)
+{
+   struct FileEntry *file;
+
+   FreeListBrowserNodes();
+
+   file = Toolbox_List_Files(0);
+   if (!file && filecount < 0)
+      return FALSE;
+
+   if (gHaveDirs && gRelPath[0])
+      AddListBrowserNode(NODE_PARENT, "/");
+
+   if (file)
+   {
+      while (file->Type >= 0)
+      {
+         if (file->Type == BLUESCSI_FILE)
+            AddListBrowserNode(NODE_FILE, file->Name);
+         else if (gHaveDirs && file->Type == BLUESCSI_DIR)
+            AddListBrowserNode(NODE_DIR, file->Name);
+         file++;
+      }
+   }
+   return TRUE;
+}
+
+/* Point the device's working directory at gBaseDir/gRelPath. */
+static int ApplyWorkingDir(void)
+{
+   char abs[160];
+
+   strcpy(abs, gBaseDir);
+   if (gRelPath[0])
+   {
+      strcat(abs, "/");
+      strcat(abs, gRelPath);
+   }
+   if (strlen(abs) > TOOLBOX_MAX_WD_PATH - 1)
+      return -1;
+   return (int)Toolbox_Set_Working_Dir(abs);
+}
+
+/* Descend into subdirectory 'name' (display form; trailing '/' stripped). */
+int DirDescend(const char *name)
+{
+   char leaf[40];
+   int len;
+   int oldlen = strlen(gRelPath);
+
+   strncpy(leaf, name, sizeof(leaf) - 1);
+   leaf[sizeof(leaf) - 1] = '\0';
+   len = strlen(leaf);
+   if (len > 0 && leaf[len - 1] == '/')
+      leaf[len - 1] = '\0';
+   if (leaf[0] == '\0')
+      return -1;
+
+   if (oldlen + 1 + strlen(leaf) >= sizeof(gRelPath))
+      return -1;
+   if (oldlen)
+      strcat(gRelPath, "/");
+   strcat(gRelPath, leaf);
+
+   if (ApplyWorkingDir() != 0)
+   {
+      gRelPath[oldlen] = '\0';                    /* revert */
+      ApplyWorkingDir();
+      return -1;
+   }
+   return 0;
+}
+
+/* Go up one directory level. */
+int DirAscend(void)
+{
+   char *p;
+
+   if (gRelPath[0] == '\0')
+      return -1;
+   p = strrchr(gRelPath, '/');
+   if (p)
+      *p = '\0';
+   else
+      gRelPath[0] = '\0';
+   return ApplyWorkingDir();
 }
 
 /* Free the browser nodes */

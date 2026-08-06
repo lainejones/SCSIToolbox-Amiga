@@ -242,6 +242,114 @@ filesystem handler. Multi-block `GET_FILE` reads (CDB[6]=block count, needs
 
 ---
 
+### Fix 11 — `m68k-amigaos-strip` corrupts hunk executables (2026-08-06)
+
+**Symptom:** freshly `make`-built BlueSCSIToolbox crashed instantly in vamos
+(`InvalidMemoryAccessError`, PC jumped to rodata like `0x254a0022`), even on the
+bare no-args usage path. Same source compiled+linked by hand ran fine.
+
+**Cause:** the Makefile ran `$(STRIP)` (`m68k-amigaos-strip`) on the linked
+binaries. This toolchain's standalone strip corrupts hunk executables (layout-
+dependent — older builds got lucky). Same root cause as the EnvEdit "system-task
+guru" hunt. The binaries are already linked with `-s`, which strips correctly.
+
+**Fix:** removed all `$(STRIP)` steps from the Makefile. **Never run standalone
+strip on this toolchain's output; always strip at link time with `gcc -s`.**
+
+**Build-host note (2026-08-06):** `C:\amiga-gcc` no longer exists on the i7-13700k
+workstation — build via WSL (`make` from `src/` under WSL uses `/opt/amiga`,
+the Makefile's non-Windows branch).
+
+---
+
+## Working-directory support (firmware v2026.04.27+, added 2026-08-06)
+
+Firmware v2026.04.27 added two metadata subcommands and a capability flag:
+
+- **`0xD9/0x02 SET_WORKING_DIR`**: DATA-OUT `CDB[8]` bytes (path + NUL, **max 64
+  bytes → 63-char paths**). Absolute SD path (e.g. `/shared/sub`). Empty string
+  (single NUL) resets to the firmware default. **Persists on the device until
+  reset/power-off, and is device-global** — all file/CD ops (COUNT/LIST/GET_FILE,
+  SEND_FILE_PREP, LIST_CDS/SET_NEXT_CD) resolve against it via `getEffectiveDir()`.
+- **`0xD9/0x03 GET_WORKING_DIR`**: DATA-IN; `CDB[8]` = alloc length (0 = firmware
+  MAX_FILE_PATH). Firmware pads the data phase to exactly alloc length; the path
+  is NUL-terminated within it. We request 255.
+- **`CAP_SET_WORKING_DIR` = bit 2 (0x04)** in the capabilities byte.
+
+Client support added everywhere, all gated on the capability flag (old firmware
+keeps the previous flat behaviour):
+
+- **`scsi.c`**: `Toolbox_Set_Working_Dir()` / `Toolbox_Get_Working_Dir()`.
+- **`BlueSCSIToolbox` CLI (1.5)**: `SETDIR/K` (applied before any other verb;
+  `SETDIR=""` resets) and `GETDIR/S`; INFO prints the capability + current dir.
+- **`SDTransfer` (1.3)**: subdirectory browsing. Dirs listed with trailing `/`,
+  a `/` row goes up, button is now "Open / Download" (descends on a dir).
+  `LBNA_UserData` holds the node kind (0=dir 1=file 2=parent). Resets the
+  device dir on exit.
+- **`sharedfs` (Phase 6)**: full hierarchy. Locks/filehandles carry a rel path;
+  `navTo()` caches the last SET to skip redundant commands; `listDir()` caches
+  the last listed dir; `resolvePath()` walks AmigaDOS paths (`:` = root, each
+  leading/doubled `/` = parent) validating every intermediate component against
+  a real listing (avoids firmware auto-creating dirs on blind chdir). GET_FILE
+  indexes are **per-directory**, so reads `navTo()` the file's dir first.
+  ACTION_CREATE_DIR → `ERROR_WRITE_PROTECTED` (no firmware mkdir).
+  Resets the device dir on ACTION_DIE. *Untested on hardware.*
+
+**Concurrency gotcha:** the working dir is ONE global on the device. Don't run
+SDTransfer (navigating) and the mounted SHARED: handler against the same unit at
+the same time — they'll fight over it and the handler's `gCurAbs` cache lies.
+
+---
+
+## HARDWARE TEST — 2026-08-06, A1200 via A314TestHarness — PASSED
+
+First-ever hardware run of the whole fork (Phases 0–6), driven unattended over
+the A314 harness. **The A1200's BlueSCSI runs OLD firmware (Toolbox API version
+0, capabilities 0x03)** — so the *new* working-dir features themselves are still
+unexercised (need a BlueSCSI firmware update to v2026.04.27+), but everything
+else, including all the capability gating, is now verified on real hardware:
+
+- **CLI `INFO`** — API version + capabilities reported correctly.
+- **CLI `SETDIR`** on old firmware → clean "Working directory not supported by
+  this firmware (needs v2026.04.27+)" message. Gating works.
+- **CLI `GETDIR`** on old firmware → clean "SCSI error 45 reading working
+  directory" (firmware CHECK CONDITION on the unknown subcommand), no crash.
+- **CLI `DIR`** — correct listing of the real shared folder.
+- **CLI `SEND` (Fix 10!)** — first hardware validation ever: 39-byte file
+  uploaded, `RECEIVE`d back, content byte-identical.
+- **`SHARED:` handler** — mounts (Workbench disk icon appears), `dir SHARED:`
+  lists, `type SHARED:file` reads, `copy → SHARED:` writes; **24 KB binary
+  round-tripped through it and EXECUTED afterwards** (hunk loader accepted it =
+  intact; also exercises multi-page GET_FILE reads). WB double-click opens the
+  volume window (empty — no .info files, expected).
+
+**Bugs found & fixed during the run:**
+1. **Mountlist rejected by OS 3.2 Mount** — `FileSystem =` entries REQUIRE
+   Surfaces/BlocksPerTrack/LowCyl/HighCyl. Added dummy geometry (handler ignores
+   it) to `SHARED.mountlist`.
+2. **`Copy` to SHARED: reported "file is write protected"** even though the data
+   was written fine — Copy clones protection+date AFTER writing and treats the
+   handler's ERROR_WRITE_PROTECTED for SET_PROTECT/SET_DATE as total failure.
+   Fixed: SET_PROTECT/SET_COMMENT/SET_DATE now return DOSTRUE and discard
+   (standard for metadata-less filesystems). Verified clean copy after fix.
+
+**A1200 session recipe (for next time):** `mount pi0:` FIRST (before any
+DataFlyer I/O — crash is order-dependent), then `c:scsiplus >nil:`, then
+`c:dfmount >nil: 3 4 5 6` (both commented out in User-Startup, run by hand).
+The toolbox target is `DEVICE=ExpXDS.device UNIT=2` — and the device name is
+**CASE-SENSITIVE** (exec FindName): `expxds.device` fails with "Error -1",
+`ExpXDS.device` works. Harness gotcha: `TYPE` cannot type `#` (silently
+dropped) — no AmigaDOS `#?` wildcards through the harness; copy files one by
+one. Pre-existing cosmetic quirk seen live: `INFO`/`LISTDEVICES` prints ~250
+"ID n: Hard disk (0)" lines on this adapter (scsi_Actual is the full request
+length, padded with zeros) — floods the console; redirect to a file and Search.
+
+**Still pending:** the actual subdirectory behavior (SETDIR+DIR listing a
+subfolder, SDTransfer navigation, SHARED: deep paths) — blocked on updating the
+BlueSCSI's firmware to v2026.04.27+. Everything else is done.
+
+---
+
 ## SCSIToolbox-Amiga fork (branch `scsitoolbox-amiga`)
 
 This repo is a GPL-3.0-or-later fork of Paul Hill's *BlueSCSI-toolbox-Amiga* by
@@ -378,7 +486,7 @@ All commands are 10-byte vendor-specific CDBs. Data buffer: 4096 bytes (`MAX_DAT
 | `SEND_FILE_END` | `0xD5` | **DATA-OUT 0**. Closes the file. |
 | `LIST_CDS` | `0xD7` | Returns CD image entries in write-timestamp order |
 | `SET_NEXT_CD` | `0xD8` | CDB[1]=index. Selects next CD image to mount. |
-| `METADATA` | `0xD9` | CDB[1]=subcommand: 0x00=list devices, 0x01=get capabilities, **0x02=SET_WORKING_DIR** (path DATA-OUT, ≤64B — for subdir descent), 0x03=get working dir |
+| `METADATA` | `0xD9` | CDB[1]=subcommand: 0x00=list devices, 0x01=get capabilities, **0x02=SET_WORKING_DIR** (DATA-OUT path+NUL, CDB[8]=len ≤64), **0x03=GET_WORKING_DIR** (DATA-IN, CDB[8]=alloc). See "Working-directory support" above. |
 | `COUNT_CDS` | `0xDA` | Returns 1 byte: CD count |
 
 **Write commands are DATA-OUT (host→device): direction `SCSIF_WRITE`, `scsi_Length` =

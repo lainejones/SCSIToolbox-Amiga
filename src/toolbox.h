@@ -38,10 +38,17 @@
 // 0xD9 Metadata subcommands (CDB[1])
 #define BLUESCSI_TOOLBOX_SUBCMD_LIST_DEVICES 0x00
 #define BLUESCSI_TOOLBOX_SUBCMD_GET_CAPABILITIES 0x01
+#define BLUESCSI_TOOLBOX_SUBCMD_SET_WORKING_DIR 0x02
+#define BLUESCSI_TOOLBOX_SUBCMD_GET_WORKING_DIR 0x03
 
 // Capability flags
 #define BLUESCSI_TOOLBOX_CAP_LARGE_TRANSFERS 0x01
 #define BLUESCSI_TOOLBOX_CAP_LARGE_SEND 0x02
+#define BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR 0x04
+
+/* SET_WORKING_DIR data phase is capped at 64 bytes by the firmware (path + NUL),
+   so the longest settable absolute SD path is 63 chars. */
+#define TOOLBOX_MAX_WD_PATH 64
 
 // from BlueSCSI_Toolbox.cpp
 #define MAX_MAC_PATH 32
@@ -67,6 +74,9 @@ LONG Toolbox_Send_Block(ULONG block, const UBYTE *data, int len);
 LONG Toolbox_Send_End(void);
 LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callback)(LONG));
 LONG Toolbox_Get_Bytes(int index, ULONG offset, UBYTE *buf, ULONG len);
+/* Working directory (needs CAP_SET_WORKING_DIR; firmware v2026.04.27+) */
+LONG Toolbox_Set_Working_Dir(const char *path);
+LONG Toolbox_Get_Working_Dir(char *buf, int buflen);
 int scsi_setup(char *scsi_dev, int scsi_unit);
 int Toolbox_GetCapabilities(void);
 extern int scsi_isBlueSCSI, scsi_isZuluSCSI;

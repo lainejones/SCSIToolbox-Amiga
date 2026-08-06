@@ -49,23 +49,23 @@ sharedfs.o: sharedfs.c toolbox.h
 hstart.o: hstart.s
 	$(CC) $(INCLUDES) -c hstart.s
 
+# NOTE: do NOT run $(STRIP) on the linked binaries - this toolchain's
+# m68k-amigaos-strip corrupts hunk executables (jumps into rodata at startup).
+# LFLAGS already links with -s, which strips correctly.
 BlueSCSIToolbox: BlueSCSIToolbox.o
 	$(CC) BlueSCSIToolbox.o -o BlueSCSIToolbox $(LFLAGS)
-	$(STRIP) BlueSCSIToolbox
 
 BlueSCSIToolbox.o: BlueSCSIToolbox.c
 	$(CC) $(CFLAGS) -c BlueSCSIToolbox.c
 
 CDChanger: CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
 	$(CC) CDChanger.o -o CDChanger $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
-	$(STRIP) CDChanger
 
 CDChanger.o: CDChanger.c BlueSCSIlogo.c ZuluSCSIlogo.c toolbox.h
 	$(CC) $(CFLAGS) -c CDChanger.c
 
 SDTransfer: SDTransfer.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
 	$(CC) SDTransfer.o -o SDTransfer $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
-	$(STRIP) SDTransfer
 
 SDTransfer.o: SDTransfer.c BlueSCSIlogo.c ZuluSCSIlogo.c toolbox.h
 	$(CC) $(CFLAGS) -c SDTransfer.c

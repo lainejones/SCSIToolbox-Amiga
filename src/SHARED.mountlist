@@ -13,20 +13,25 @@
  *   (e.g. scsi.device Unit 6, etc. on other setups.)
  *
  * The handler reads only Device + Unit (from the FileSysStartupMsg). The
- * geometry / DosType fields a block filesystem needs are NOT used here.
- *
- * NOTE: PHASE 2 SKELETON - this mounts and answers ACTION_STARTUP /
- * IS_FILESYSTEM / DIE only; directory and file packets arrive in Phases 3-4.
- * UNTESTED ON HARDWARE.
+ * geometry fields below are DUMMIES - OS 3.2's Mount refuses a FileSystem
+ * entry without Surfaces/BlocksPerTrack/LowCyl/HighCyl (verified on hardware
+ * 2026-08-06), but the handler never looks at them.
  */
 
 SHARED:
-FileSystem = L:sharedfs
-Device     = ExpXDS.device
-Unit       = 2
-Flags      = 0
-GlobVec    = -1
-StackSize  = 4096
-Priority   = 5
-Mount      = 1
+FileSystem     = L:sharedfs
+Device         = ExpXDS.device
+Unit           = 2
+Flags          = 0
+Surfaces       = 1
+BlocksPerTrack = 1
+BlockSize      = 512
+LowCyl         = 0
+HighCyl        = 0
+Buffers        = 1
+GlobVec        = -1
+StackSize      = 4096
+Priority       = 5
+DosType        = 0x53484152
+Mount          = 1
 #

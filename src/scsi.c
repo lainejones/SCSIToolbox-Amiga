@@ -609,6 +609,61 @@ LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callba
    return (LONG)total;
 }
 
+/* Set the device's working directory (absolute SD path, e.g. "/shared/sub").
+ * All subsequent file/CD toolbox ops resolve against it. NULL or "" resets to
+ * the firmware default. The firmware caps the data phase at 64 bytes, so paths
+ * are limited to 63 chars. Returns 0 or the SCSI io_Error (-1 = too long). */
+LONG Toolbox_Set_Working_Dir(const char *path)
+{
+   UBYTE command[10] = {0};
+   int len = 0;
+   int i;
+
+   while (path && path[len])
+      len++;
+   if (len > TOOLBOX_MAX_WD_PATH - 1)
+      return -1;
+
+   for (i = 0; i < len; i++)
+      scsi_data[i] = (UBYTE)path[i];
+   scsi_data[len] = 0;      /* a single NUL byte resets to the default dir */
+
+   command[0] = BLUESCSI_TOOLBOX_METADATA;
+   command[1] = BLUESCSI_TOOLBOX_SUBCMD_SET_WORKING_DIR;
+   command[8] = (UBYTE)(len + 1);
+
+   return DoScsiCmd((UBYTE *)scsi_data, len + 1,
+                    (UBYTE *)&command, sizeof(command),
+                    (SCSIF_WRITE | SCSIF_AUTOSENSE));
+}
+
+/* Read the current effective working directory into buf (NUL-terminated,
+ * truncated to buflen). Returns 0 or the SCSI io_Error. */
+LONG Toolbox_Get_Working_Dir(char *buf, int buflen)
+{
+   UBYTE command[10] = {0};
+   LONG err;
+   int i;
+
+   command[0] = BLUESCSI_TOOLBOX_METADATA;
+   command[1] = BLUESCSI_TOOLBOX_SUBCMD_GET_WORKING_DIR;
+   command[8] = 255;        /* firmware pads the data phase to this length */
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, 255,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
+   {
+      if (buflen > 0)
+         buf[0] = '\0';
+      return err;
+   }
+
+   for (i = 0; i < buflen - 1 && i < 255 && scsi_data[i]; i++)
+      buf[i] = (char)scsi_data[i];
+   buf[i] = '\0';
+   return 0;
+}
+
 /* Read 'len' bytes from shared-folder file 'index' (the toolbox device index)
    starting at byte 'offset', into memory 'buf'. Returns bytes actually read
    (may be < len at EOF), or -1 on SCSI error. Uses paged GET_FILE (4096-byte
