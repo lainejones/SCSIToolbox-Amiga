@@ -1,0 +1,31 @@
+/* SCSIToolbox-Amiga - SHARED: handler mountlist, GVP A530 (A500) variant
+ *
+ * Same as SHARED.mountlist but Device = gvpscsi.device. Set Unit to the
+ * BlueSCSI's SCSI ID on the A530 chain (find it with:
+ *   BlueSCSIToolbox DEVICE=gvpscsi.device UNIT=<id> INFO
+ * trying ids until one answers - or check the image names on the SD card,
+ * the leading digit of e.g. HD2_512.hda is the ID).
+ *
+ * Install: Copy sharedfs L:   then   Mount SHARED: from SHARED-GVP.mountlist
+ *
+ * The geometry fields are DUMMIES - OS Mount refuses a FileSystem entry
+ * without them, but the handler never reads them.
+ */
+
+SHARED:
+FileSystem     = L:sharedfs
+Device         = gvpscsi.device
+Unit           = 2
+Flags          = 0
+Surfaces       = 1
+BlocksPerTrack = 1
+BlockSize      = 512
+LowCyl         = 0
+HighCyl        = 0
+Buffers        = 1
+GlobVec        = -1
+StackSize      = 4096
+Priority       = 5
+DosType        = 0x53484152
+Mount          = 1
+#
