@@ -47,7 +47,7 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-static const char ver[] = "$VER: SDTransfer 1.3 (6.8.2026)";
+static const char ver[] = "$VER: SDTransfer 1.4 (6.8.2026)";
 
 /* Node kinds stored in LBNA_UserData */
 #define NODE_DIR    0
@@ -59,6 +59,7 @@ BOOL AddListBrowserNode(ULONG kind, STRPTR filename);
 BOOL RefreshFileList(void);
 int DirDescend(const char *name);
 int DirAscend(void);
+void OpenOrDownload(Object *listBrowser);
 void progress(int pc);
 void getfilename(char *name, char *title);
 void format_size(char *buffer, int length, ULONG size);
@@ -340,6 +341,7 @@ int main(int argc, char **argv)
                LISTBROWSER_AutoFit, TRUE,
                LISTBROWSER_Editable, FALSE,
                LISTBROWSER_MinVisible, 5,
+               LISTBROWSER_RelEvent, LBRE_DOUBLECLICK,
             End,
 
          // Download button
@@ -404,72 +406,16 @@ int main(int argc, char **argv)
                   switch (result & WMHI_GADGETMASK)
                   {
                      case GID_LISTBROWSER:
-                        //Printf("WMHI_GADGETUP GID_LISTBROWSER\n");
+                        {
+                           // Double-click = same action as the button
+                           ULONG rel = 0;
+                           GetAttr(LISTBROWSER_RelEvent, listBrowser, &rel);
+                           if (rel == LBRE_DOUBLECLICK)
+                              OpenOrDownload(listBrowser);
+                        }
                         break;
                      case GID_DOWNLOAD:
-                        GetAttr(LISTBROWSER_SelectedNode, listBrowser, (ULONG*) &node);
-                        if (node)
-                        {
-                           // Get the filename and the entry kind
-                           ULONG userdata;
-                           ULONG kind = NODE_FILE;
-                           {
-                              struct TagItem gtags[] = {
-                                  {LBNA_Column,  0},
-                                  {LBNCA_Text,   (ULONG)&userdata},
-                                  {LBNA_UserData,(ULONG)&kind},
-                                  {TAG_DONE,     0}
-                              };
-                              GetListBrowserNodeAttrsA(node, gtags);
-                           }
-                           if (userdata && kind != NODE_FILE)
-                           {
-                              // Directory navigation: rebuild the list
-                              int navres;
-                              SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
-                                             LISTBROWSER_Labels, ~0, TAG_END);
-                              if (kind == NODE_PARENT)
-                                 navres = DirAscend();
-                              else
-                                 navres = DirDescend((char *)userdata);
-                              if (navres == 0)
-                                 RefreshFileList();
-                              SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
-                                             LISTBROWSER_Labels, &gb_List, TAG_END);
-                              sprintf(fuelGaugeText, "Dir: /%s", gRelPath);
-                              SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
-                                             GA_Text, fuelGaugeText,
-                                             FUELGAUGE_Percent, FALSE,
-                                             TAG_END);
-                           }
-                           else if (userdata)
-                           {
-                              char *source = (char *) userdata;
-                              char destination[MAXPATH];
-
-                              // Set the fuelGauge to %
-                              SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL, FUELGAUGE_Percent, TRUE, FUELGAUGE_Level, 0, TAG_END);
-
-                              strncpy(destination, source, MAXPATH);
-
-                              getfilename(destination, "Save As");
-                              if (destination)
-                              {
-                                 ULONG bytes = Toolbox_Download(source, destination, progress);
-                                 if (bytes > 0)
-                                 {
-                                    char size_text[32];
-
-                                    format_size(size_text, sizeof(size_text), bytes);
-                                    sprintf(fuelGaugeText, "%s bytes saved to %s", size_text, destination);
-                                    SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
-                                                   GA_Text, fuelGaugeText,
-                                                   FUELGAUGE_Percent, FALSE,
-                                                   TAG_END);
-                                 }
-                              }
-                           }
-                        }
+                        OpenOrDownload(listBrowser);
                         break;
                   }
                   break;
@@ -671,6 +617,79 @@ int DirAscend(void)
    else
       gRelPath[0] = '\0';
    return ApplyWorkingDir();
+}
+
+/* Act on the selected entry: descend into a dir, ascend on the "/" row,
+   download a file. Shared by the button and listbrowser double-click. */
+void OpenOrDownload(Object *listBrowser)
+{
+   struct Node *node;
+   ULONG userdata;
+   ULONG kind = NODE_FILE;
+
+   GetAttr(LISTBROWSER_SelectedNode, listBrowser, (ULONG*) &node);
+   if (!node)
+      return;
+
+   {
+      struct TagItem gtags[] = {
+          {LBNA_Column,  0},
+          {LBNCA_Text,   (ULONG)&userdata},
+          {LBNA_UserData,(ULONG)&kind},
+          {TAG_DONE,     0}
+      };
+      GetListBrowserNodeAttrsA(node, gtags);
+   }
+   if (!userdata)
+      return;
+
+   if (kind != NODE_FILE)
+   {
+      // Directory navigation: rebuild the list
+      int navres;
+      SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
+                     LISTBROWSER_Labels, ~0, TAG_END);
+      if (kind == NODE_PARENT)
+         navres = DirAscend();
+      else
+         navres = DirDescend((char *)userdata);
+      if (navres == 0)
+         RefreshFileList();
+      SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
+                     LISTBROWSER_Labels, &gb_List, TAG_END);
+      sprintf(fuelGaugeText, "Dir: /%s", gRelPath);
+      SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
+                     GA_Text, fuelGaugeText,
+                     FUELGAUGE_Percent, FALSE,
+                     TAG_END);
+   }
+   else
+   {
+      char *source = (char *) userdata;
+      char destination[MAXPATH];
+
+      // Set the fuelGauge to %
+      SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL, FUELGAUGE_Percent, TRUE, FUELGAUGE_Level, 0, TAG_END);
+
+      strncpy(destination, source, MAXPATH);
+
+      getfilename(destination, "Save As");
+      if (destination)
+      {
+         ULONG bytes = Toolbox_Download(source, destination, progress);
+         if (bytes > 0)
+         {
+            char size_text[32];
+
+            format_size(size_text, sizeof(size_text), bytes);
+            sprintf(fuelGaugeText, "%s bytes saved to %s", size_text, destination);
+            SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
+                           GA_Text, fuelGaugeText,
+                           FUELGAUGE_Percent, FALSE,
+                           TAG_END);
+         }
+      }
+   }
 }
 
 /* Free the browser nodes */
