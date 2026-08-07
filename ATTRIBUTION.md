@@ -18,11 +18,14 @@ mountable shared-folder filesystem handler and an upload path.
 
 | File | Status | Notes |
 |------|--------|-------|
-| `src/scsi.c`            | modified | add `SEND_FILE_*` upload primitives (`Toolbox_Send_Prep`/`Block`/`End`/`File`), UI-agnostic error returns |
-| `src/toolbox.h`         | modified | declarations for the above |
-| `src/BlueSCSIToolbox.c` | modified | fix the `SEND` upload path (data direction + transfer lengths) |
-| `src/sharedfs.c`        | **new**  | AmigaDOS filesystem handler for the shared folder (`SHARED:`) — *in development* |
-| (mountlist / DOSDriver) | **new**  | mounts `SHARED:` — *in development* |
+| `src/scsi.c`            | modified | `SEND_FILE_*` upload primitives; `SET/GET_WORKING_DIR` primitives; multi-page `GET_FILE` reads |
+| `src/toolbox.h`         | modified | declarations, capability flags, working-dir constants |
+| `src/BlueSCSIToolbox.c` | modified | fix the `SEND` upload path; `SETDIR/GETDIR/RESETDIR`, `INFO`, `LISTDEVICES` |
+| `src/SDTransfer.c`      | modified | subfolder navigation (double-click, to SD root), persistent listbrowser node text |
+| `src/sharedfs.c`        | **new**  | AmigaDOS filesystem handler for the shared folder (`SHARED:`), hierarchical with working-dir firmware |
+| `src/hstart.s`          | **new**  | handler entry stub (hunk offset 0 → handlerMain) |
+| `src/SHARED.mountlist`, `src/SHARED-GVP.mountlist` | **new** | mountlists for `SHARED:` |
+| `src/Makefile`          | modified | handler target; removed broken standalone-strip step |
 
 Each modified file gains a notice of the form:
 

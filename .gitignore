@@ -1,7 +1,11 @@
 src/*.o
+src/*.map
+src/*.map_test
 src/BlueSCSIToolbox
 src/CDChanger
 src/SDTransfer
 src/sharedfs
+src/*_dbg
+src/*_test
 dist/*
 devnotes.txt
