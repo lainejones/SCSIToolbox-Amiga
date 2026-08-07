@@ -62,7 +62,7 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-static const char ver[] = "$VER: BlueSCSIToolbox 1.5 (6.8.2026)";
+static const char ver[] = "$VER: BlueSCSIToolbox 1.6 (7.8.2026)";
 
 int Toolbox_List_Files(int cdrom);
 int Toolbox_List_Devices(void);
@@ -119,7 +119,7 @@ struct FileEntry *files = NULL;
 int filecount = 0;
 
 // ReadArgs template
-char *template = "DEVICE/K,UNIT/K/N,DIR=LIST/S,SEND/K,RECEIVE/K,LISTDEVICES/S,LISTCDS/S,SETCD/K/N,SETDEBUG/K/N,INFO/S,SETDIR/K,GETDIR/S";
+char *template = "DEVICE/K,UNIT/K/N,DIR=LIST/S,SEND/K,RECEIVE/K,LISTDEVICES/S,LISTCDS/S,SETCD/K/N,SETDEBUG/K/N,INFO/S,SETDIR/K,GETDIR/S,RESETDIR/S";
 
 enum ToolboxCommand
 {
@@ -147,7 +147,8 @@ enum ToolboxParams
    SETDEBUG,
    INFO,
    SETDIR,
-   GETDIR
+   GETDIR,
+   RESETDIR
 };
 
 int main(int argc, char* argv[])
@@ -158,11 +159,12 @@ int main(int argc, char* argv[])
    char filename[256];
    char progname[256];
    char workdir[256];
-   LONG params[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   LONG params[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    LONG nextcd;
    LONG debugon;
    int setdir = 0;
    int getdir = 0;
+   int resetdir = 0;
 
    GetProgramName(progname, sizeof(progname));
 
@@ -231,6 +233,12 @@ int main(int argc, char* argv[])
       {
          getdir = 1;
       }
+      if (params[RESETDIR])
+      {
+         /* Unambiguous reset: SETDIR="" also works, but a bare "SETDIR="
+            eats the next argument as its value (ReadArgs semantics). */
+         resetdir = 1;
+      }
       FreeArgs(rd);
    }
    else
@@ -240,7 +248,7 @@ int main(int argc, char* argv[])
       return 5;
    }
 
-   if (toolboxCommand == TOOLBOX_NONE && !setdir && !getdir)
+   if (toolboxCommand == TOOLBOX_NONE && !setdir && !getdir && !resetdir)
    {
       SetIoErr(ERROR_REQUIRED_ARG_MISSING);
       PrintFault(IoErr(), progname);
@@ -292,14 +300,14 @@ int main(int argc, char* argv[])
       goto exit;
    }
 
-   if (setdir)
+   if (setdir || resetdir)
    {
       if (!(scsi_capabilities & BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR))
       {
          PutStr("Working directory not supported by this firmware (needs v2026.04.27+)\n");
          goto exit;
       }
-      if (Toolbox_SetWorkingDir(workdir) != 0)
+      if (Toolbox_SetWorkingDir(setdir ? workdir : (char *)"") != 0)
       {
          goto exit;
       }

@@ -47,7 +47,7 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-static const char ver[] = "$VER: SDTransfer 1.4 (6.8.2026)";
+static const char ver[] = "$VER: SDTransfer 1.5 (7.8.2026)";
 
 /* Node kinds stored in LBNA_UserData */
 #define NODE_DIR    0
@@ -75,11 +75,11 @@ UBYTE scsi_dev[1024];
 LONG scsi_unit = -1;
 
 /* Working-directory navigation state (firmware CAP_SET_WORKING_DIR).
-   gBaseDir = the device default (e.g. "/shared"); gRelPath = where we are
-   below it ("" = top). */
+   gCurPath = absolute SD path currently browsed (starts at the device
+   default, e.g. "/shared"); ascending is allowed all the way to "/",
+   the SD card root. */
 static int gHaveDirs = 0;
-static char gBaseDir[80];
-static char gRelPath[64];
+static char gCurPath[80];
 
 static char *readArgsTemplate = "DEVICE/K,UNIT/K/N";
 static char* appname = "SD Transfer";
@@ -268,7 +268,7 @@ int main(int argc, char **argv)
 
    if (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR)
    {
-      if (Toolbox_Get_Working_Dir(gBaseDir, sizeof(gBaseDir)) == 0 && gBaseDir[0])
+      if (Toolbox_Get_Working_Dir(gCurPath, sizeof(gCurPath)) == 0 && gCurPath[0])
          gHaveDirs = 1;
    }
 
@@ -451,7 +451,7 @@ int main(int argc, char **argv)
    }
 
 exit:
-   if (gHaveDirs && gRelPath[0])
+   if (gHaveDirs)
       Toolbox_Set_Working_Dir("");   /* leave the device at its default dir */
    if (chip_logo_data) FreeVec(chip_logo_data);
    scsi_cleanup();
@@ -541,7 +541,7 @@ BOOL RefreshFileList(void)
    if (!file && filecount < 0)
       return FALSE;
 
-   if (gHaveDirs && gRelPath[0])
+   if (gHaveDirs && strcmp(gCurPath, "/") != 0)
       AddListBrowserNode(NODE_PARENT, "/");
 
    if (file)
@@ -558,20 +558,12 @@ BOOL RefreshFileList(void)
    return TRUE;
 }
 
-/* Point the device's working directory at gBaseDir/gRelPath. */
+/* Point the device's working directory at gCurPath. */
 static int ApplyWorkingDir(void)
 {
-   char abs[160];
-
-   strcpy(abs, gBaseDir);
-   if (gRelPath[0])
-   {
-      strcat(abs, "/");
-      strcat(abs, gRelPath);
-   }
-   if (strlen(abs) > TOOLBOX_MAX_WD_PATH - 1)
+   if (strlen(gCurPath) > TOOLBOX_MAX_WD_PATH - 1)
       return -1;
-   return (int)Toolbox_Set_Working_Dir(abs);
+   return (int)Toolbox_Set_Working_Dir(gCurPath);
 }
 
 /* Descend into subdirectory 'name' (display form; trailing '/' stripped). */
@@ -579,7 +571,7 @@ int DirDescend(const char *name)
 {
    char leaf[40];
    int len;
-   int oldlen = strlen(gRelPath);
+   int oldlen = strlen(gCurPath);
 
    strncpy(leaf, name, sizeof(leaf) - 1);
    leaf[sizeof(leaf) - 1] = '\0';
@@ -589,34 +581,42 @@ int DirDescend(const char *name)
    if (leaf[0] == '\0')
       return -1;
 
-   if (oldlen + 1 + strlen(leaf) >= sizeof(gRelPath))
+   if (oldlen + 1 + strlen(leaf) >= TOOLBOX_MAX_WD_PATH)
       return -1;
-   if (oldlen)
-      strcat(gRelPath, "/");
-   strcat(gRelPath, leaf);
+   if (gCurPath[oldlen - 1] != '/')
+      strcat(gCurPath, "/");
+   strcat(gCurPath, leaf);
 
    if (ApplyWorkingDir() != 0)
    {
-      gRelPath[oldlen] = '\0';                    /* revert */
+      gCurPath[oldlen] = '\0';                    /* revert */
       ApplyWorkingDir();
       return -1;
    }
    return 0;
 }
 
-/* Go up one directory level. */
+/* Go up one directory level; the SD card root "/" is the floor. */
 int DirAscend(void)
 {
+   char old[sizeof(gCurPath)];
    char *p;
 
-   if (gRelPath[0] == '\0')
+   if (strcmp(gCurPath, "/") == 0)
       return -1;
-   p = strrchr(gRelPath, '/');
-   if (p)
-      *p = '\0';
+   strcpy(old, gCurPath);
+   p = strrchr(gCurPath, '/');
+   if (p == gCurPath)
+      gCurPath[1] = '\0';                         /* "/shared" -> "/" */
    else
-      gRelPath[0] = '\0';
-   return ApplyWorkingDir();
+      *p = '\0';
+   if (ApplyWorkingDir() != 0)
+   {
+      strcpy(gCurPath, old);                      /* revert */
+      ApplyWorkingDir();
+      return -1;
+   }
+   return 0;
 }
 
 /* Act on the selected entry: descend into a dir, ascend on the "/" row,
@@ -657,7 +657,7 @@ void OpenOrDownload(Object *listBrowser)
          RefreshFileList();
       SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
                      LISTBROWSER_Labels, &gb_List, TAG_END);
-      sprintf(fuelGaugeText, "Dir: /%s", gRelPath);
+      sprintf(fuelGaugeText, "Dir: %s", gCurPath);
       SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
                      GA_Text, fuelGaugeText,
                      FUELGAUGE_Percent, FALSE,

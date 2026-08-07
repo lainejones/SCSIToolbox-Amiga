@@ -26,9 +26,10 @@ Throughout:  <DEV> = DEVICE=gvpscsi.device UNIT=<id>
    EXPECT: lists ONLY testdir's contents. Directories in a listing show "Dir".
 
 4) Persistence + reset
-     BlueSCSIToolbox <DEV> DIR          -> still testdir (override persists!)
-     BlueSCSIToolbox <DEV> SETDIR= DIR  -> back to /shared contents
-   (SETDIR= with nothing after the = resets to the default.)
+     BlueSCSIToolbox <DEV> DIR           -> still testdir (override persists!)
+     BlueSCSIToolbox <DEV> RESETDIR DIR  -> back to /shared contents
+   (SETDIR="" also resets. A bare "SETDIR=" does NOT - ReadArgs eats the
+   next word as its value.)
 
 5) SEND into a subfolder
      BlueSCSIToolbox <DEV> SETDIR=/shared/testdir SEND=ram:somefile
