@@ -47,12 +47,15 @@ File browser for the SD card. Descend into folders and back up by **double-click
 so the whole card is reachable, not just the shared folder. Downloads use an ASL
 save requester with a progress gauge.
 
-![SD Transfer](SDTransfer.png)
+![SD Transfer browsing the SD card root on a real A500](SDTransfer.png)
 
 ### CD Changer
 Swap between CD ISO images on the SD card on the fly.
 
-![CD Changer](CDChanger.png) ![CD Changer ZuluSCSI](CDChanger_ZuluSCSI.png)
+![CD Changer on a real A500](CDChanger.png)
+
+*(Screenshots captured on a real Amiga 500 + GVP A530 + BlueSCSI; the ZuluSCSI logo
+is shown automatically when a ZuluSCSI device is detected.)*
 
 ### BlueSCSIToolbox (CLI)
 Command-line access:
