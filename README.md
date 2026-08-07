@@ -52,7 +52,7 @@ save requester with a progress gauge.
 ### CD Changer
 Swap between CD ISO images on the SD card on the fly.
 
-![CD Changer on a real A500](CDChanger.png)
+![CD Changer on a real A500](CDChanger.png) ![CD Changer on a ZuluSCSI device, real A1200](CDChanger_ZuluSCSI.png)
 
 *(Screenshots captured on real hardware — Amiga 500 + GVP A530 + BlueSCSI, and
 Amiga 1200 + DataFlyer SCSI+ + ZuluSCSI. The BlueSCSI/ZuluSCSI logo is picked
