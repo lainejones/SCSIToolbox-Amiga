@@ -299,7 +299,9 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
 
    if (cdrom)
    {
-      if (!scsi_isRemovable)
+      /* Accept CD-ROM peripheral type even without the removable bit -
+         some ZuluSCSI firmware reports its CD unit as non-removable. */
+      if (!scsi_isRemovable && !scsi_isCD)
       {
          MessageBox("Toolbox_List_Files", "Not a removable device!\n");
          return NULL;
@@ -358,6 +360,18 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
    }
 #endif
    return files;
+}
+
+/* Eject the medium: standard SCSI START STOP UNIT with LoEj set. On
+ * BlueSCSI the tray stays empty only with ReinsertAfterEject=0 in
+ * bluescsi.ini (otherwise the firmware auto-inserts the next image). */
+LONG Toolbox_Eject(void)
+{
+   UBYTE command[] = {0x1B, 0, 0, 0, 0x02, 0};
+
+   return DoScsiCmd((UBYTE *)scsi_data, 0,
+                    (UBYTE *)&command, sizeof(command),
+                    (SCSIF_WRITE | SCSIF_AUTOSENSE));
 }
 
 /* Select a CD image */

@@ -62,7 +62,12 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-static const char ver[] = "$VER: BlueSCSIToolbox 1.6 (7.8.2026)";
+static const char ver[] = "$VER: BlueSCSIToolbox 1.7 (7.8.2026)";
+
+/* Last-CD state shared with CDChanger (see SaveLastCD there) */
+#define LASTCD_ENV     "ENV:CDChanger.lastcd"
+#define LASTCD_ENVARC  "ENVARC:CDChanger.lastcd"
+#define EJECTED_MARKER "<EJECTED>"
 
 int Toolbox_List_Files(int cdrom);
 int Toolbox_List_Devices(void);
@@ -73,6 +78,10 @@ int Toolbox_PutFileByName(char *destination, char *source);
 int Toolbox_List_CDs(void);
 int Toolbox_SetWorkingDir(char *path);
 int Toolbox_GetWorkingDir(char *buf, int buflen);
+int Toolbox_Eject(void);
+void Toolbox_RestoreCD(void);
+void SaveLastCD(char *name);
+int ReadLastCD(char *buf, int buflen);
 void Toolbox_Show_files(void);
 void Toolbox_Next_CD(int index);
 void Toolbox_Debug(int debugon);
@@ -119,7 +128,7 @@ struct FileEntry *files = NULL;
 int filecount = 0;
 
 // ReadArgs template
-char *template = "DEVICE/K,UNIT/K/N,DIR=LIST/S,SEND/K,RECEIVE/K,LISTDEVICES/S,LISTCDS/S,SETCD/K/N,SETDEBUG/K/N,INFO/S,SETDIR/K,GETDIR/S,RESETDIR/S";
+char *template = "DEVICE/K,UNIT/K/N,DIR=LIST/S,SEND/K,RECEIVE/K,LISTDEVICES/S,LISTCDS/S,SETCD/K/N,SETDEBUG/K/N,INFO/S,SETDIR/K,GETDIR/S,RESETDIR/S,EJECT/S,RESTORECD/S";
 
 enum ToolboxCommand
 {
@@ -131,7 +140,9 @@ enum ToolboxCommand
    TOOLBOX_LISTCDS,
    TOOLBOX_SETCD,
    TOOLBOX_SETDEBUG,
-   TOOLBOX_INFO
+   TOOLBOX_INFO,
+   TOOLBOX_EJECT,
+   TOOLBOX_RESTORECD
 };
 
 enum ToolboxParams
@@ -148,7 +159,9 @@ enum ToolboxParams
    INFO,
    SETDIR,
    GETDIR,
-   RESETDIR
+   RESETDIR,
+   EJECT,
+   RESTORECD
 };
 
 int main(int argc, char* argv[])
@@ -159,7 +172,7 @@ int main(int argc, char* argv[])
    char filename[256];
    char progname[256];
    char workdir[256];
-   LONG params[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+   LONG params[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    LONG nextcd;
    LONG debugon;
    int setdir = 0;
@@ -238,6 +251,14 @@ int main(int argc, char* argv[])
          /* Unambiguous reset: SETDIR="" also works, but a bare "SETDIR="
             eats the next argument as its value (ReadArgs semantics). */
          resetdir = 1;
+      }
+      if (params[EJECT])
+      {
+         toolboxCommand = TOOLBOX_EJECT;
+      }
+      if (params[RESTORECD])
+      {
+         toolboxCommand = TOOLBOX_RESTORECD;
       }
       FreeArgs(rd);
    }
@@ -328,7 +349,7 @@ int main(int argc, char* argv[])
       Toolbox_Show_files();
       break;
    case TOOLBOX_LISTCDS:
-      if (scsi_removable)
+      if (scsi_removable || scsi_isCD)
       {
          Toolbox_List_Files(1);
          Toolbox_Show_files();
@@ -349,7 +370,7 @@ int main(int argc, char* argv[])
       Toolbox_List_Devices();
       break;
    case TOOLBOX_SETCD:
-      if (scsi_removable)
+      if (scsi_removable || scsi_isCD)
       {
          Toolbox_List_Files(1);
          if (nextcd<=0 || nextcd>(filecount))
@@ -361,11 +382,33 @@ int main(int argc, char* argv[])
          {
             Toolbox_Next_CD(files[nextcd - 1].Index);
             DiskChange();
+            SaveLastCD(files[nextcd - 1].Name);
          }
       }
       else
       {
          PutStr("Not a CDROM\n");
+      }
+      break;
+   case TOOLBOX_EJECT:
+      if (scsi_removable || scsi_isCD)
+      {
+         if (Toolbox_Eject() == 0)
+         {
+            SaveLastCD((char *)EJECTED_MARKER);
+            DiskChange();
+            PutStr("Ejected\n");
+         }
+      }
+      else
+      {
+         PutStr("Not a CDROM\n");
+      }
+      break;
+   case TOOLBOX_RESTORECD:
+      if (scsi_removable || scsi_isCD)
+      {
+         Toolbox_RestoreCD();
       }
       break;
    case TOOLBOX_SETDEBUG:
@@ -673,6 +716,92 @@ int Toolbox_GetWorkingDir(char *buf, int buflen)
       buf[i] = (char)scsi_data[i];
    buf[i] = '\0';
    return 0;
+}
+
+/* Eject the medium: standard SCSI START STOP UNIT with LoEj set. On
+ * BlueSCSI the tray stays empty only with ReinsertAfterEject=0 in
+ * bluescsi.ini (otherwise the firmware auto-inserts the next image). */
+int Toolbox_Eject(void)
+{
+   UBYTE command[] = {0x1B, 0, 0, 0, 0x02, 0};
+   int err;
+
+   if ((err = DoScsiCmd((UBYTE *)scsi_data, 0,
+                        (UBYTE *)&command, sizeof(command),
+                        (SCSIF_WRITE | SCSIF_AUTOSENSE))) != 0)
+   {
+      Printf("SCSI error %ld ejecting\n", err);
+   }
+   return err;
+}
+
+/* Remember the mounted image (or the ejected marker) in ENV: + ENVARC:.
+ * Shared state with CDChanger's Eject/Select buttons. */
+void SaveLastCD(char *name)
+{
+   static const char * const paths[] = {LASTCD_ENV, LASTCD_ENVARC};
+   int i;
+
+   for (i = 0; i < 2; i++)
+   {
+      BPTR fh = Open((STRPTR)paths[i], MODE_NEWFILE);
+      if (fh)
+      {
+         Write(fh, name, strlen(name));
+         Close(fh);
+      }
+   }
+}
+
+int ReadLastCD(char *buf, int buflen)
+{
+   BPTR fh = Open((STRPTR)LASTCD_ENV, MODE_OLDFILE);
+   LONG got;
+
+   if (!fh)
+      fh = Open((STRPTR)LASTCD_ENVARC, MODE_OLDFILE);
+   if (!fh)
+      return 0;
+   got = Read(fh, buf, buflen - 1);
+   Close(fh);
+   if (got <= 0)
+      return 0;
+   buf[got] = '\0';
+   while (got > 0 && (buf[got - 1] == '\n' || buf[got - 1] == '\r' || buf[got - 1] == ' '))
+      buf[--got] = '\0';
+   return got > 0;
+}
+
+/* Boot-time restore (User-Startup): bring back the last mounted CD by
+ * name, or keep the tray empty if it was ejected. Silent when there is
+ * no saved state. */
+void Toolbox_RestoreCD(void)
+{
+   char last[80];
+   int i;
+
+   if (!ReadLastCD(last, sizeof(last)))
+      return;
+
+   if (Stricmp((STRPTR)last, (STRPTR)EJECTED_MARKER) == 0)
+   {
+      Toolbox_Eject();                    /* ensure the tray is empty */
+      DiskChange();
+      return;
+   }
+
+   Toolbox_List_Files(1);
+   for (i = 0; i < filecount; i++)
+   {
+      if (Stricmp((STRPTR)files[i].Name, (STRPTR)last) == 0)
+      {
+         Toolbox_Next_CD(files[i].Index);
+         DiskChange();
+         Printf("Restored CD: %s\n", (ULONG)last);
+         return;
+      }
+   }
+   Printf("Saved CD '%s' not found on the device\n", (ULONG)last);
 }
 
 static const char *deviceTypeName(UBYTE type)

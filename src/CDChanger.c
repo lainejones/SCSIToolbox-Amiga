@@ -1,6 +1,13 @@
 /*
  * Copyright (C) 2024 Paul Hill
  *
+ * Modified 2026-08-07 by Laine Jones (lainejones): part of SCSIToolbox-Amiga.
+ * Added an Eject button (SCSI START STOP UNIT) and last-CD persistence:
+ * the selected image name (or an ejected marker) is written to
+ * ENV(ARC):CDChanger.lastcd so "BlueSCSIToolbox RESTORECD" in User-Startup
+ * can restore it after a reboot. Pair with StartEjected=1 and
+ * ReinsertAfterEject=0 in bluescsi.ini for empty-tray-by-default behaviour.
+ *
  * This program is free software: you can redistribute and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -39,8 +46,12 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-static const char ver[] = "$VER: CDChanger 1.2 (18.5.2024)";
+static const char ver[] = "$VER: CDChanger 1.3 (7.8.2026)";
 
+/* Marker stored instead of an image name when the tray was ejected */
+#define EJECTED_MARKER "<EJECTED>"
+
+void SaveLastCD(const char *name);
 void GetVolumeName(void);
 void DiskChange(void);
 void FreeListBrowserNodes(void);
@@ -61,6 +72,7 @@ static char* appname = "CD Changer";
 enum Gadgets
 {
    GID_NEXT,
+   GID_EJECT,
    GID_LISTBROWSER,
 };
 
@@ -379,14 +391,22 @@ int main(int argc, char **argv)
                LISTBROWSER_MinVisible, 8,
             End,
 
-         LAYOUT_AddChild,
-            ButtonObject,
-               GA_ID, GID_NEXT,
-               GA_RelVerify, TRUE,
-               GA_Text, "_Select",
-            End,
-            CHILD_MinHeight, 20,
-            CHILD_MaxHeight, 20,
+         LAYOUT_AddChild, HLayoutObject,
+            LAYOUT_AddChild,
+               ButtonObject,
+                  GA_ID, GID_NEXT,
+                  GA_RelVerify, TRUE,
+                  GA_Text, "_Select",
+               End,
+            LAYOUT_AddChild,
+               ButtonObject,
+                  GA_ID, GID_EJECT,
+                  GA_RelVerify, TRUE,
+                  GA_Text, "_Eject",
+               End,
+         End,
+         CHILD_MinHeight, 20,
+         CHILD_MaxHeight, 20,
 
       EndGroup,
    EndWindow;
@@ -431,14 +451,30 @@ int main(int argc, char **argv)
                         if (selectedNode)
                         {
                            ULONG userdata = 0;
+                           ULONG nameptr = 0;
                            struct TagItem gtags[] = {
                               {LBNA_Column,   0},
                               {LBNA_UserData, (ULONG)&userdata},
+                              {LBNA_Column,   1},
+                              {LBNCA_Text,    (ULONG)&nameptr},
                               {TAG_DONE,      0}
                            };
                            GetListBrowserNodeAttrsA(selectedNode, gtags);
                            Toolbox_Set_Next_CD((UBYTE) userdata);
                            DiskChange();
+                           if (nameptr)
+                              SaveLastCD((const char *)nameptr);
+                        }
+                        break;
+                     case GID_EJECT:
+                        if (Toolbox_Eject() == 0)
+                        {
+                           DiskChange();
+                           SaveLastCD(EJECTED_MARKER);
+                        }
+                        else
+                        {
+                           MessageBox(appname, "Eject failed (SCSI error)");
                         }
                         break;
                   }
@@ -568,6 +604,25 @@ void bstrcpy(char *dest, UBYTE *src)
    int len = *src++;
    strncpy(dest, src, len + 1);
    dest[len] = 0;
+}
+
+/* Remember the mounted image (or the ejected marker) in ENV: + ENVARC:
+   so BlueSCSIToolbox RESTORECD can bring it back after a reboot. */
+void SaveLastCD(const char *name)
+{
+   static const char * const paths[] = {"ENV:CDChanger.lastcd",
+                                        "ENVARC:CDChanger.lastcd"};
+   int i;
+
+   for (i = 0; i < 2; i++)
+   {
+      BPTR fh = Open((STRPTR)paths[i], MODE_NEWFILE);
+      if (fh)
+      {
+         Write(fh, (APTR)name, strlen(name));
+         Close(fh);
+      }
+   }
 }
 
 void GetVolumeName()
