@@ -46,7 +46,7 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-static const char ver[] = "$VER: CDChanger 1.3 (7.8.2026)";
+static const char ver[] = "$VER: CDChanger 1.7 (8.8.2026)";
 
 /* Marker stored instead of an image name when the tray was ejected */
 #define EJECTED_MARKER "<EJECTED>"

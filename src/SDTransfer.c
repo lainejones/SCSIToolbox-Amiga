@@ -47,7 +47,7 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-static const char ver[] = "$VER: SDTransfer 1.5 (7.8.2026)";
+static const char ver[] = "$VER: SDTransfer 1.7 (8.8.2026)";
 
 /* Node kinds stored in LBNA_UserData */
 #define NODE_DIR    0
