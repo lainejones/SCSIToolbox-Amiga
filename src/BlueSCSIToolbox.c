@@ -62,7 +62,7 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-static const char ver[] = "$VER: BlueSCSIToolbox 1.7 (8.8.2026)";
+__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.7 (8.8.2026)";
 
 /* Last-CD state shared with CDChanger (see SaveLastCD there) */
 #define LASTCD_ENV     "ENV:CDChanger.lastcd"
@@ -179,7 +179,8 @@ int main(int argc, char* argv[])
    int getdir = 0;
    int resetdir = 0;
 
-   GetProgramName(progname, sizeof(progname));
+      { const char * volatile keepver = ver; (void)keepver; } /* keep $VER through --gc-sections */
+GetProgramName(progname, sizeof(progname));
 
    if ((UtilityBase = OpenLibrary("utility.library", 37L)) == NULL)
    {

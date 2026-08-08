@@ -47,7 +47,7 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-static const char ver[] = "$VER: SDTransfer 1.7 (8.8.2026)";
+__attribute__((used)) static const char ver[] = "$VER: SDTransfer 1.7 (8.8.2026)";
 
 /* Node kinds stored in LBNA_UserData */
 #define NODE_DIR    0
@@ -138,6 +138,7 @@ int main(int argc, char **argv)
       myproc->pr_WindowPtr = (APTR)-1L;
    }
 
+   { const char * volatile keepver = ver; (void)keepver; } /* keep $VER through --gc-sections */
    if ((IntuitionBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 33L)) == NULL)
    {
       PutStr("Could not open intuition.library\n");

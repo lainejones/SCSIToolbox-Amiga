@@ -46,7 +46,7 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-static const char ver[] = "$VER: CDChanger 1.7 (8.8.2026)";
+__attribute__((used)) static const char ver[] = "$VER: CDChanger 1.7 (8.8.2026)";
 
 /* Marker stored instead of an image name when the tray was ejected */
 #define EJECTED_MARKER "<EJECTED>"
@@ -151,7 +151,8 @@ int main(int argc, char **argv)
       myproc->pr_WindowPtr = (APTR)-1L;
    }
 
-   params[0] = 0;
+      { const char * volatile keepver = ver; (void)keepver; } /* keep $VER through --gc-sections */
+params[0] = 0;
    params[1] = 0;
 
    if ((UtilityBase = OpenLibrary("utility.library", 37L)) == NULL)
