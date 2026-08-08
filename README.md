@@ -144,10 +144,17 @@ repository.
 ## History
 
 **SCSIToolbox-Amiga (this fork) — Laine Jones**
-* CLI 1.6 / SDTransfer 1.5 — `RESETDIR/S`; SDTransfer browses above the start
-  directory to the SD card root.
-* SDTransfer 1.4 — double-click navigation (both directions).
-* CLI 1.5 / SDTransfer 1.3 / sharedfs — **working-directory (subfolder) support**
+
+*From 1.7 on, every tool carries the suite version.*
+
+* 1.7 — **CD Changer Eject button** + persistent CD selection: state kept in
+  `ENV(ARC):CDChanger.lastcd`; CLI `EJECT` / `RESTORECD` (User-Startup restore);
+  pairs with `StartEjected=1` + `ReinsertAfterEject=0` in `bluescsi.ini` for
+  no-CD-mounted-by-default across power cycles. ZuluSCSI CD units without the
+  INQUIRY removable bit are accepted. `$VER` strings survive linking again.
+* 1.6 — `RESETDIR/S`; SDTransfer browses above the start
+  directory to the SD card root; double-click navigation (both directions).
+* 1.5 — **working-directory (subfolder) support**
   across all clients (BlueSCSI fw v2026.04.27 `SET/GET_WORKING_DIR`), capability-
   gated for older firmware. `SHARED:` becomes fully hierarchical: locks carry
   relative paths, every path component is validated against a real listing, reads
