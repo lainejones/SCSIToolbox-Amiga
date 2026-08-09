@@ -62,7 +62,7 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.7 (8.8.2026)";
+__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.8 (9.8.2026)";
 
 /* Last-CD state shared with CDChanger (see SaveLastCD there) */
 #define LASTCD_ENV     "ENV:CDChanger.lastcd"

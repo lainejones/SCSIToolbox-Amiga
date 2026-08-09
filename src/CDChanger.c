@@ -46,7 +46,7 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-__attribute__((used)) static const char ver[] = "$VER: CDChanger 1.7 (8.8.2026)";
+__attribute__((used)) static const char ver[] = "$VER: CDChanger 1.8 (9.8.2026)";
 
 /* Marker stored instead of an image name when the tray was ejected */
 #define EJECTED_MARKER "<EJECTED>"
@@ -353,7 +353,7 @@ params[0] = 0;
       WINDOW_IconifyGadget, TRUE,
       WINDOW_IconTitle, appname,
       WINDOW_AppPort, AppPort,
-      WINDOW_Position, WPOS_TOPLEFT,
+      WINDOW_Position, WPOS_CENTERMOUSE,
       WINDOW_ParentGroup, VLayoutObject,
          LAYOUT_SpaceOuter, TRUE,
          LAYOUT_DeferLayout, TRUE,
