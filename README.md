@@ -147,6 +147,9 @@ repository.
 
 *From 1.7 on, every tool carries the suite version.*
 
+* 1.8 — GUI windows open centered under the mouse (`WPOS_CENTERMOUSE`) instead
+  of the screen's top-left corner — launching from an icon opens the window at
+  the icon.
 * 1.7 — **CD Changer Eject button** + persistent CD selection: state kept in
   `ENV(ARC):CDChanger.lastcd`; CLI `EJECT` / `RESTORECD` (User-Startup restore);
   pairs with `StartEjected=1` + `ReinsertAfterEject=0` in `bluescsi.ini` for
