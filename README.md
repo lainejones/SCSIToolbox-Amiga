@@ -80,16 +80,15 @@ SCSI data direction and transfer lengths — see History).
 
 ## Requirements
 
-- **AmigaOS 3.2 or newer** for every tool in this release. The shared SCSI layer
-  copies directory-listing names with utility.library's `Strncpy`, which is new in
-  utility.library V47 (AmigaOS 3.2). On 3.1 / 3.5 / 3.9 the programs start, but
-  any listing (`DIR`, `LISTCDS`, the GUIs' file lists, `SHARED:`) calls a library
-  vector that does not exist there.
-- Apart from that, the CLI tool and `sharedfs` need only dos.library and
-  utility.library V37 (OS 2.04); CDChanger and SDTransfer also need the ReAction
-  classes at V44 (window.class, layout.gadget, listbrowser.gadget, label.image,
-  plus fuelgauge.gadget and asl.library V44 for SDTransfer), i.e. OS 3.5 or newer;
-  ClassAct on 3.1 is older than V44 and is not enough.
+- **The CLI tool (`BlueSCSIToolbox`) and `sharedfs`:** AmigaOS 2.04 or newer
+  (dos.library and utility.library V37). `SHARED:` is tested on Kickstart 3.1.
+- **CDChanger and SDTransfer:** the ReAction classes at V44 (window.class,
+  layout.gadget, listbrowser.gadget, label.image, plus fuelgauge.gadget and
+  asl.library V44 for SDTransfer), i.e. OS 3.5 or newer; ClassAct on 3.1 is older
+  than V44 and is not enough.
+- Up to 1.8.1, `sharedfs` and the GUIs copied listing names with utility.library's
+  `Strncpy`, which only exists from AmigaOS 3.2 (V47): on 3.1-3.9 any `SHARED:`
+  listing or GUI file list crashed the machine. 1.8.2 fixes that.
 - Any 68k CPU: the default build is plain 68000; `make release-all` also builds
   68020, 68040 and 68060 variants.
 - A SCSI adapter with an AmigaOS device driver (scsi.device, gvpscsi.device,
@@ -192,6 +191,11 @@ repository.
 
 *From 1.7 on, every tool carries the suite version.*
 
+* 1.8.2 — `sharedfs`, CDChanger and SDTransfer work below AmigaOS 3.2 again:
+  listing names were copied with utility.library `Strncpy` (V47 / OS 3.2 only),
+  which crashed 3.1-3.9 on any `SHARED:` listing or GUI file list; now a plain
+  copy. `SHARED:` tested on Kickstart 3.1.
+* 1.8.1 — packaging: `sharedfs` and both mountlists in the archive, drawer icon.
 * 1.8 — GUI windows open centered under the mouse (`WPOS_CENTERMOUSE`) instead
   of the screen's top-left corner — launching from an icon opens the window at
   the icon.

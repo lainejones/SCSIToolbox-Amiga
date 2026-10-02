@@ -277,6 +277,17 @@ STRPTR TestData[] =
 };
 #endif
 
+/* a file name from the toolbox's list: at most MAX_MAC_PATH characters, always terminated.
+ * (utility.library's Strncpy did this before, but it only exists from AmigaOS 3.2 - V47 -
+ * so on 3.1-3.9 every listing crashed.) */
+static void copy_name(char *dst, const char *src)
+{
+   int i;
+   for (i = 0; i < MAX_MAC_PATH && src[i]; i++)
+      dst[i] = src[i];
+   dst[i] = '\0';
+}
+
 /* Execute BLUESCSI_TOOLBOX_LIST_CDS and create the files array */
 struct FileEntry *Toolbox_List_Files(int cdrom)
 {
@@ -291,7 +302,7 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
       file->Type = BLUESCSI_FILE;
       file->Size = 4096*20000;
       numToStr(file->Number, (ULONG)(f+1));
-      Strncpy(file->Name, TestData[f], 32);
+      copy_name(file->Name, TestData[f]);
       file++;
    }
    file->Type = -1;  // EOF
@@ -347,9 +358,7 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
             file->Index = c[0];
             file->Type = c[1];    // 0=dir 1=file
 
-            Strncpy(file->Name, (char *)&c[2], MAX_MAC_PATH);
-            file->Name[MAX_MAC_PATH] = '\0';
-            /* Write Number AFTER Strncpy in case it overflows one byte into Number[0] */
+            copy_name(file->Name, (char *)&c[2]);
             numToStr(file->Number, (ULONG)(f+1));
 
             file->Size = Toolbox_ParseEntrySize(c);
