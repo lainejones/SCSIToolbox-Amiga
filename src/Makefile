@@ -35,6 +35,8 @@ CFLAGS   = $(INCLUDES) $(TIMEVAL_DEFS) -DNO_INLINE_STDARG $(OPT) -std=c99 $(CPUF
 LFLAGS   = -lamiga -Wl,--gc-sections -s
 #LFLAGS  += -ldebug
 
+.PHONY: all clean release release-all 68020 68040 68060
+
 all: BlueSCSIToolbox CDChanger SDTransfer sharedfs
 
 # SHARED: filesystem handler. Built -nostartfiles: the hstart.s stub provides the
@@ -97,31 +99,30 @@ ZuluSCSIlogo.o: ZuluSCSIlogo.c
 clean:
 	$(RM) -f $(OBJS) BlueSCSIToolbox CDChanger SDTransfer sharedfs
 
-release:
-	$(MKDIR)
-	$(RM) -f $(DISTDIR)$(PATHSEP)*
-	$(CP) CDChanger $(DISTDIR)
-	$(CP) CDChanger.info $(DISTDIR)
-	$(CP) SDTransfer $(DISTDIR)
-	$(CP) SDTransfer.info $(DISTDIR)
-	$(CP) ..$(PATHSEP)LICENSE.txt $(DISTDIR)
-	$(CP) BlueSCSIToolbox $(DISTDIR)
+# ---- release packaging -----------------------------------------------------
+# Needs a POSIX shell (WSL/Linux, or amiga-gcc's sh.exe on Windows - the same
+# SHELL= the build uses). Produces a ready-to-archive drawer:
+#   dist/SCSIToolbox.info            drawer icon
+#   dist/SCSIToolbox/                BlueSCSIToolbox, CDChanger(.info),
+#                                    SDTransfer(.info), sharedfs,
+#                                    SHARED.mountlist, SHARED-GVP.mountlist,
+#                                    LICENSE.txt, README.md
+# release-all puts the programs in one drawer per CPU instead
+# (dist/SCSIToolbox/68000/ ... 68060/, each with its drawer icon).
+REL      = $(DISTDIR)/SCSIToolbox
+PROGS    = BlueSCSIToolbox CDChanger CDChanger.info SDTransfer SDTransfer.info sharedfs
+DOCS     = SHARED.mountlist SHARED-GVP.mountlist ../LICENSE.txt ../README.md
 
-# Build all CPU variants into dist/<cpu>/ subdirectories
+release: all
+	rm -rf $(REL) $(REL).info
+	mkdir -p $(REL)
+	cp $(PROGS) $(DOCS) $(REL)/
+	cp SCSIToolbox.info $(REL).info
+
+# Build all CPU variants into dist/SCSIToolbox/<cpu>/ drawers
 release-all:
-ifeq ($(OS),Windows_NT)
-	for %%C in (68000 68020 68040 68060) do (if not exist $(DISTDIR)\%%C mkdir $(DISTDIR)\%%C)
-	$(MAKE) clean && $(MAKE) CPUFLAGS="-m68000" OPT="-O2" && $(CP) BlueSCSIToolbox CDChanger SDTransfer $(DISTDIR)\68000
-	$(MAKE) clean && $(MAKE) CPUFLAGS="-m68020" OPT="-O3" && $(CP) BlueSCSIToolbox CDChanger SDTransfer $(DISTDIR)\68020
-	$(MAKE) clean && $(MAKE) CPUFLAGS="-m68040" OPT="-O3" && $(CP) BlueSCSIToolbox CDChanger SDTransfer $(DISTDIR)\68040
-	$(MAKE) clean && $(MAKE) CPUFLAGS="-m68060" OPT="-O3" && $(CP) BlueSCSIToolbox CDChanger SDTransfer $(DISTDIR)\68060
-	$(CP) CDChanger.info SDTransfer.info ..$(PATHSEP)LICENSE.txt $(DISTDIR)
-else
-	for cpu in 68000 68020 68040 68060; do mkdir -p $(DISTDIR)/$$cpu; done
-	$(MAKE) clean && $(MAKE) CPUFLAGS="-m68000" OPT="-O2" && $(CP) BlueSCSIToolbox CDChanger SDTransfer $(DISTDIR)/68000
-	$(MAKE) clean && $(MAKE) CPUFLAGS="-m68020" OPT="-O3" && $(CP) BlueSCSIToolbox CDChanger SDTransfer $(DISTDIR)/68020
-	$(MAKE) clean && $(MAKE) CPUFLAGS="-m68040" OPT="-O3" && $(CP) BlueSCSIToolbox CDChanger SDTransfer $(DISTDIR)/68040
-	$(MAKE) clean && $(MAKE) CPUFLAGS="-m68060" OPT="-O3" && $(CP) BlueSCSIToolbox CDChanger SDTransfer $(DISTDIR)/68060
-	$(CP) CDChanger.info SDTransfer.info ../LICENSE.txt $(DISTDIR)
-endif
-
+	rm -rf $(REL) $(REL).info
+	mkdir -p $(REL)
+	for cpu in 68000 68020 68040 68060; do 	    opt=-O3; [ $$cpu = 68000 ] && opt=-O2; 	    $(MAKE) clean && $(MAKE) CPUFLAGS="-m$$cpu" OPT="$$opt" || exit 1; 	    mkdir -p $(REL)/$$cpu && cp $(PROGS) $(REL)/$$cpu/ && cp SCSIToolbox.info $(REL)/$$cpu.info || exit 1; 	done
+	cp $(DOCS) $(REL)/
+	cp SCSIToolbox.info $(REL).info

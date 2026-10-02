@@ -58,6 +58,8 @@
 
 #define ID_SHARED_DISK 0x53484152UL   /* 'SHAR' */
 
+__attribute__((used)) static const char ver[] = "$VER: sharedfs 1.8 (9.8.2026)";
+
 /* With -nostartfiles we provide the library bases ourselves. */
 struct ExecBase *SysBase = NULL;
 struct DosLibrary *DOSBase = NULL;

@@ -78,6 +78,47 @@ SCSI data direction and transfer lengths — see History).
 
 ---
 
+## Requirements
+
+- **AmigaOS 3.2 or newer** for every tool in this release. The shared SCSI layer
+  copies directory-listing names with utility.library's `Strncpy`, which is new in
+  utility.library V47 (AmigaOS 3.2). On 3.1 / 3.5 / 3.9 the programs start, but
+  any listing (`DIR`, `LISTCDS`, the GUIs' file lists, `SHARED:`) calls a library
+  vector that does not exist there.
+- Apart from that, the CLI tool and `sharedfs` need only dos.library and
+  utility.library V37 (OS 2.04); CDChanger and SDTransfer also need the ReAction
+  classes at V44 (window.class, layout.gadget, listbrowser.gadget, label.image,
+  plus fuelgauge.gadget and asl.library V44 for SDTransfer), i.e. OS 3.5 or newer;
+  ClassAct on 3.1 is older than V44 and is not enough.
+- Any 68k CPU: the default build is plain 68000; `make release-all` also builds
+  68020, 68040 and 68060 variants.
+- A SCSI adapter with an AmigaOS device driver (scsi.device, gvpscsi.device,
+  ExpXDS.device, ...) and a BlueSCSI V2 or ZuluSCSI with the Toolbox enabled.
+
+## Install
+
+The release archive holds one drawer, `SCSIToolbox` (with its drawer icon):
+
+| File | Install to | What it is |
+|------|------------|------------|
+| `BlueSCSIToolbox` | `C:` or anywhere on your path | the CLI tool |
+| `CDChanger` + `.info` | any drawer | CD image switcher (GUI) |
+| `SDTransfer` + `.info` | any drawer | SD card browser / downloader (GUI) |
+| `sharedfs` | `L:` | the `SHARED:` filesystem handler |
+| `SHARED.mountlist`, `SHARED-GVP.mountlist` | edit Device/Unit, then `Mount SHARED: from SHARED.mountlist`, or put the entry in `DEVS:DOSDrivers/` as `SHARED` | mount entries for `SHARED:` |
+| `LICENSE.txt`, `README.md` | | GPL-3.0 licence, this file |
+
+A `release-all` archive has the four programs (with their icons) in one drawer
+per CPU (`68000`, `68020`, `68040`, `68060`); copy the set that matches your CPU.
+
+Set the SCSI device and unit in each GUI icon's Tool Types (`DEVICE=`, `UNIT=`)
+or on the command line.
+
+Use the `.lha` archive if you can. A `.zip` loses AmigaDOS protection bits, so
+after unpacking a `.zip` make the programs executable, e.g.
+`protect BlueSCSIToolbox +e`, `protect CDChanger +e`, `protect SDTransfer +e`
+(and `protect L:sharedfs +e`).
+
 ## Firmware requirements
 
 - Base features (DIR/SEND/RECEIVE/CDs, flat `SHARED:`) work on any Toolbox-capable
@@ -101,6 +142,10 @@ Cross-compile with [amiga-gcc](https://github.com/bebbo/amiga-gcc) (bebbo, m68k)
 ```
 cd src && make          # 68000 baseline; also: make 68020 / 68040 / 68060
 ```
+
+`make release` builds and assembles the release drawer in `dist/SCSIToolbox/`
+(+ `dist/SCSIToolbox.info`); `make release-all` does the same with one drawer per
+CPU. Both need a POSIX shell (WSL/Linux, or amiga-gcc's `sh.exe`).
 
 **Do not run standalone `m68k-amigaos-strip` on the binaries** — it corrupts
 AmigaOS hunk executables. The Makefile links with `-s`, which strips correctly.
