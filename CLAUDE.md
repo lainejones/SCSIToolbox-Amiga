@@ -524,7 +524,8 @@ All commands are 10-byte vendor-specific CDBs. Data buffer: 4096 bytes (`MAX_DAT
 | `GET_FILE` | `0xD1` | CDB[1]=index, CDB[2-5]=page offset. Returns 4096-byte pages. (CDB[6]=block count for multi-block when `CAP_LARGE_TRANSFERS`.) |
 | `COUNT_FILES` | `0xD2` | Returns 1 byte: file count |
 | `SEND_FILE_PREP` | `0xD3` | **DATA-OUT 33 bytes** = filename (32+NUL). Creates the file. |
-| `SEND_FILE_10` | `0xD4` | **DATA-OUT**. Legacy (CDB[6]=0): count in CDB[1..2], 512-byte block index in CDB[3..5]. Block mode (CDB[6]>0, `CAP_LARGE_SEND`): CDB[6]×512 bytes. |
+| `SEND_FILE_10` | `0xD4` | **DATA-OUT**. Legacy (CDB[6]=0): count in CDB[1..2]; CDB[3..5] = 512-byte offset **relative to the last write** (every firmware does `seekCur(offset*512)`: BlueSCSI v1, v2, ZuluSCSI) - so send **0**. Sending the block index only worked on fresh files (each seek ran past EOF and failed); on an existing ZuluSCSI file it opened gaps (fixed 1.9). Block mode (CDB[6]>0, `CAP_LARGE_SEND`): CDB[6]×512 bytes. |
+| (overwrite) | | `SEND_FILE_PREP` on an existing name: BlueSCSI v2 `truncate()`s it; **ZuluSCSI does NOT** (opens FILE_WRITE + rewind), so a shorter upload keeps the old tail. Clients refuse to overwrite on ZuluSCSI (1.9). |
 | `SEND_FILE_END` | `0xD5` | **DATA-OUT 0**. Closes the file. |
 | `LIST_CDS` | `0xD7` | Returns CD image entries in write-timestamp order |
 | `SET_NEXT_CD` | `0xD8` | CDB[1]=index. Selects next CD image to mount. |

@@ -40,6 +40,10 @@ ignores them.
 Bounded by the Toolbox firmware protocol: **list / read / create** are supported;
 **delete, rename and makedir are not** (no such firmware commands — they fail
 cleanly). Protection bits/comments/dates are accepted and discarded, so `Copy` works.
+On **ZuluSCSI**, writing over an existing file is refused ("object already
+exists"): its firmware does not truncate the old file, so a shorter upload would
+keep the old tail. Remove or rename the file on the SD card first. BlueSCSI
+truncates, so overwriting works there.
 
 ### SD Transfer
 File browser for the SD card. Descend into folders and back up by **double-click**
@@ -200,6 +204,13 @@ repository.
   ReAction feature). SDTransfer shows the busy pointer while downloading
   (OS 3.0+), and its Save requester opens over its window in save mode.
   CDChanger lost three unused DosList scans at startup.
+  **Uploads over an existing file no longer corrupt it.** Every firmware
+  treats the SEND_FILE_10 block offset as relative to the last write
+  (`seekCur`), not absolute; uploads now send 0 ("carry on"). The old absolute
+  block numbers only worked on new files: overwriting a file on ZuluSCSI left
+  gaps (a 55 KB file came out at 102 KB). `SHARED:` and the CLI `SEND` now
+  refuse to overwrite on ZuluSCSI (it keeps the old tail); BlueSCSI overwrites
+  correctly. Uploads verified byte-identical on both.
 * 1.8.3 — audit fixes. SDTransfer no longer spins at 100% CPU while idle
   (`Wait()` was outside the event loop) and no longer downloads when the Save
   requester is cancelled. The CLI gets the same CloseDevice-after-failed-open

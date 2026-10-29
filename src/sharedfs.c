@@ -105,7 +105,6 @@ struct MyFH
    ULONG fsize;
    ULONG pos;
    /* write */
-   ULONG wblock;      /* next 512-byte block index */
    ULONG wbuflen;     /* bytes currently buffered in wbuf */
    UBYTE wbuf[512];
 };
@@ -686,7 +685,7 @@ static void doEnd(struct DosPacket *pkt)
       if (mfh->isWrite)                            /* finish the upload */
       {
          if (mfh->wbuflen > 0 &&
-             Toolbox_Send_Block(mfh->wblock, mfh->wbuf, (int)mfh->wbuflen) != 0)
+             Toolbox_Send_Block(mfh->wbuf, (int)mfh->wbuflen) != 0)
             failed = 1;
          if (Toolbox_Send_End() != 0)
             failed = 1;
@@ -739,6 +738,16 @@ static void doFindOutput(struct DosPacket *pkt)
    {
       pkt->dp_Res1 = DOSFALSE;
       pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
+      return;
+   }
+   if (r == 1 && scsi_isZuluSCSI)                  /* ZuluSCSI firmware opens an
+                                                      existing file without
+                                                      truncating it: a shorter
+                                                      upload would keep the old
+                                                      tail. BlueSCSI truncates. */
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_OBJECT_EXISTS;
       return;
    }
 
@@ -800,13 +809,12 @@ static void doWrite(struct DosPacket *pkt)
       done += n;
       if (mfh->wbuflen == 512)
       {
-         if (Toolbox_Send_Block(mfh->wblock, mfh->wbuf, 512) != 0)
+         if (Toolbox_Send_Block(mfh->wbuf, 512) != 0)
          {
             pkt->dp_Res1 = -1;
             pkt->dp_Res2 = ERROR_DISK_FULL;
             return;
          }
-         mfh->wblock++;
          mfh->wbuflen = 0;
       }
    }

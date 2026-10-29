@@ -114,7 +114,7 @@ int main(int argc, char **argv)
    if (!RefreshFileList())
       goto exit;
 
-   sprintf(info, "Device:%.40s Unit:%ld", scsi_dev, scsi_unit);
+   sprintf(info, "%.40s, unit %ld", scsi_dev, scsi_unit);
 
    ui.title = appname;
    ui.info = info;

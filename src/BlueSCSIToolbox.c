@@ -1017,8 +1017,9 @@ ULONG Toolbox_GetFileByName(char *destination, char *source)
  *   SEND_FILE_PREP (0xD3): DATA OUT = exactly 33 bytes (32 + NUL) = the
  *                          destination filename.
  *   SEND_FILE_10   (0xD4): DATA OUT = the byte count for this block. Legacy
- *                          mode (CDB[6]=0): count in CDB[1..2]; 512-byte block
- *                          offset in CDB[3..5], big-endian. We send <=512/cmd.
+ *                          mode (CDB[6]=0): count in CDB[1..2]; CDB[3..5] is a
+ *                          512-byte offset RELATIVE to the last write (seekCur in
+ *                          every firmware), so we send 0. We send <=512/cmd.
  *   SEND_FILE_END  (0xD5): no DATA OUT.
  *
  * All three are DATA-OUT (host->device): direction must be SCSIF_WRITE and the
@@ -1032,9 +1033,25 @@ int Toolbox_PutFileByName(char *destination, char *source)
    int err;
    int i;
    BPTR fh;
-   ULONG offset;          /* in 512-byte blocks */
    ULONG total = 0;
    char size_text[32];
+
+   /* ZuluSCSI firmware opens an existing file without truncating it, so a
+    * shorter upload would keep the old tail: refuse instead. BlueSCSI truncates. */
+   if (scsi_isZuluSCSI && Toolbox_List_Files(0) == 0)
+   {
+      int f;
+      for (f = 0; f < filecount; f++)
+      {
+         if (files[f].Type == 1 && Stricmp((STRPTR)files[f].Name, (STRPTR)destination) == 0)
+         {
+            Printf("'%s' already exists in the shared folder; ZuluSCSI cannot overwrite\n"
+                   "files (it would keep the old tail). Remove it on the SD card first.\n",
+                   (ULONG)destination);
+            return 0;
+         }
+      }
+   }
 
    /* Open the local source FIRST: don't PREP (which creates the file on the SD
     * card) until we know we can read what we're meant to upload. */
@@ -1062,8 +1079,7 @@ int Toolbox_PutFileByName(char *destination, char *source)
       return 0;
    }
 
-   /* --- SEND_FILE_10: stream up to 512 bytes per 512-byte block --- */
-   offset = 0;
+   /* --- SEND_FILE_10: stream up to 512 bytes per command, each straight after the last --- */
    while (1)
    {
       LONG len = Read(fh, scsi_data, 512);
@@ -1079,9 +1095,7 @@ int Toolbox_PutFileByName(char *destination, char *source)
       command[0] = BLUESCSI_TOOLBOX_SEND_FILE_10;
       command[1] = (UBYTE)((len >> 8) & 0xFF);   /* byte count hi */
       command[2] = (UBYTE)(len & 0xFF);          /* byte count lo */
-      command[3] = (UBYTE)((offset >> 16) & 0xFF);
-      command[4] = (UBYTE)((offset >> 8) & 0xFF);
-      command[5] = (UBYTE)(offset & 0xFF);
+      command[3] = command[4] = command[5] = 0;  /* relative offset: carry on */
       command[6] = 0;                            /* legacy byte-count mode */
       if ((err = DoScsiCmd((UBYTE *)scsi_data, (int)len,
                            (UBYTE *)&command, sizeof(command),
@@ -1093,7 +1107,6 @@ int Toolbox_PutFileByName(char *destination, char *source)
       }
 
       total += (ULONG)len;
-      offset++;
    }
    Close(fh);
 

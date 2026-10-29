@@ -70,7 +70,7 @@ void scsi_cleanup(void);
 ULONG Toolbox_Download(char *source, char *destination, void (*callback)(int));
 /* Shared-folder upload primitives (return 0 on success, SCSI io_Error on fail) */
 LONG Toolbox_Send_Prep(const char *remotename);
-LONG Toolbox_Send_Block(ULONG block, const UBYTE *data, int len);
+LONG Toolbox_Send_Block(const UBYTE *data, int len);
 LONG Toolbox_Send_End(void);
 LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callback)(LONG));
 LONG Toolbox_Get_Bytes(int index, ULONG offset, UBYTE *buf, ULONG len);

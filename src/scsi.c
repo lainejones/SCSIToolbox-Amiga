@@ -594,9 +594,9 @@ LONG Toolbox_Send_Prep(const char *remotename)
                     (SCSIF_WRITE | SCSIF_AUTOSENSE));
 }
 
-/* Send one 512-byte block (1..512 bytes) at 512-byte block index 'block'.
+/* Send the next 1..512 bytes of the upload, straight after the previous ones.
  * 'data' may be scsi_data itself (no copy) or any caller buffer. */
-LONG Toolbox_Send_Block(ULONG block, const UBYTE *data, int len)
+LONG Toolbox_Send_Block(const UBYTE *data, int len)
 {
    UBYTE command[10] = {0};
 
@@ -608,9 +608,13 @@ LONG Toolbox_Send_Block(ULONG block, const UBYTE *data, int len)
    command[0] = BLUESCSI_TOOLBOX_SEND_FILE_10;
    command[1] = (UBYTE)((len >> 8) & 0xFF);   /* byte count hi */
    command[2] = (UBYTE)(len & 0xFF);          /* byte count lo */
-   command[3] = (UBYTE)((block >> 16) & 0xFF);
-   command[4] = (UBYTE)((block >> 8) & 0xFF);
-   command[5] = (UBYTE)(block & 0xFF);
+   /* CDB[3..5] is NOT an absolute position, whatever the protocol notes say:
+      every firmware (BlueSCSI v1 and v2, ZuluSCSI) does seekCur(offset * 512),
+      i.e. relative to where the last write ended. Sending the block index only
+      worked on a fresh file because each seek ran past the end and failed; on
+      an existing file (ZuluSCSI does not truncate it) it opened gaps of 1, 2,
+      3... blocks. 0 = carry on from here, which is right on all of them. */
+   command[3] = command[4] = command[5] = 0;
    command[6] = 0;                            /* legacy byte-count mode */
 
    return DoScsiCmd((UBYTE *)scsi_data, len,
@@ -635,7 +639,6 @@ LONG Toolbox_Send_End(void)
 LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callback)(LONG))
 {
    BPTR fh;
-   ULONG block = 0;
    ULONG total = 0;
 
    /* Open the local source FIRST: don't PREP (which creates the file on the SD
@@ -664,13 +667,12 @@ LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callba
       if (len == 0)
          break;
 
-      if (Toolbox_Send_Block(block, scsi_data, (int)len) != 0)
+      if (Toolbox_Send_Block(scsi_data, (int)len) != 0)
       {
          Close(fh);
          return -1;
       }
       total += (ULONG)len;
-      block++;
       if (callback)
          callback((LONG)total);
    }
