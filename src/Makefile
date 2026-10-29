@@ -1,4 +1,4 @@
-OBJS	 = BlueSCSIToolbox.o CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o SDTransfer.o sharedfs.o hstart.o
+OBJS	 = BlueSCSIToolbox.o CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o gtui.o SDTransfer.o sharedfs.o hstart.o
 
 DISTDIR  = ../dist
 
@@ -60,16 +60,16 @@ BlueSCSIToolbox: BlueSCSIToolbox.o
 BlueSCSIToolbox.o: BlueSCSIToolbox.c
 	$(CC) $(CFLAGS) -c BlueSCSIToolbox.c
 
-CDChanger: CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
-	$(CC) CDChanger.o -o CDChanger $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+CDChanger: CDChanger.o gtui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+	$(CC) CDChanger.o gtui.o -o CDChanger $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
 
-CDChanger.o: CDChanger.c BlueSCSIlogo.c ZuluSCSIlogo.c toolbox.h
+CDChanger.o: CDChanger.c toolbox.h gtui.h
 	$(CC) $(CFLAGS) -c CDChanger.c
 
-SDTransfer: SDTransfer.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
-	$(CC) SDTransfer.o -o SDTransfer $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+SDTransfer: SDTransfer.o gtui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+	$(CC) SDTransfer.o gtui.o -o SDTransfer $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
 
-SDTransfer.o: SDTransfer.c BlueSCSIlogo.c ZuluSCSIlogo.c toolbox.h
+SDTransfer.o: SDTransfer.c toolbox.h gtui.h
 	$(CC) $(CFLAGS) -c SDTransfer.c
 
 scsi.o: scsi.c toolbox.h
@@ -77,6 +77,9 @@ scsi.o: scsi.c toolbox.h
 
 common.o: common.c toolbox.h
 	$(CC) $(CFLAGS) -c common.c
+
+gtui.o: gtui.c gtui.h
+	$(CC) $(CFLAGS) -c gtui.c
 
 BlueSCSIlogo.o: BlueSCSIlogo.c
 	$(CC) $(CFLAGS) -c BlueSCSIlogo.c

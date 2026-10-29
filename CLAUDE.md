@@ -449,7 +449,30 @@ writes commit on close (no in-place edit); 32-char names; synthetic dates/protec
 
 ---
 
-## ListBrowser Tag Reference (AmigaOS 3.2.3 ReAction)
+## GUIs are GadTools from 1.9 (2026-10-28) - `src/gtui.c`
+
+CDChanger and SDTransfer no longer use ReAction (it needed V44 classes, OS 3.5+;
+the user wants them on 3.1). Both build their window with the shared
+`gtui.c`/`gtui.h`: logo in a recessed bevel, info line, LISTVIEW_KIND list
+(rows are plain `struct Node`s in static arrays, `ln_Name` = text), BUTTON_KIND
+buttons with `GT_Underscore` (the vanilla key fires the button), and for
+SDTransfer a hand-drawn status/progress bar. `gtui_Wait()` turns IDCMP into
+QUIT / BUTTON n / SELECT row / OPEN row (double-click via `DoubleClick()`).
+Resizing rebuilds all gadgets (`relayout`); `WindowLimits` keeps the logo
+(192 px) visible. Needs only V37 libraries.
+
+- The ListBrowser notes below (Fix 4, LBNCA_CopyText/Integer, tag reference)
+  are history now: nothing uses listbrowser.gadget any more.
+- Detach the list (`gtui_DetachList`) before changing it, attach again after.
+- `-DTESTMODE` builds now skip the device completely in `scsi_setup`, so a
+  TESTMODE GUI build opens on any machine (fake list from `TestData`). Used for
+  the OS 3.1 render test in WinUAE config `prism os31` (clean KS/WB 3.1, no
+  ReAction: the 1.8.2 SDTransfer stops there with "Could not open window.class").
+- Verified 2026-10-28: KS/WB 3.1 render (WinUAE) and full click test on the
+  A500 (OS 3.2.3, BlueSCSI) over NetHarness - navigation, double-click,
+  download + Cancel, progress bar, resize, Esc, CDChanger list on unit 3.
+
+## ListBrowser Tag Reference (AmigaOS 3.2.3 ReAction) - historical, pre-1.9
 
 Compile with `-DNO_INLINE_STDARG` to force `AllocListBrowserNodeA` (TagItem array)
 instead of the varargs macro `AllocListBrowserNode`.
@@ -565,17 +588,16 @@ Do NOT sort the list — sorting breaks the `c[0]` → `SET_NEXT_CD` mapping.
 - `$VER` bumped to 1.4.
 
 ### `src/CDChanger.c`
-- `static const char * const g_nums[64]` for # column (compiled-in literals)
-- `static int g_numcount` tracks display position
-- No `WMHI_GADGETDOWN` handler — disc changes only on explicit Select button press
-- No `qsort` — ISOs displayed in device (timestamp) order
-- `WINDOW_Position, WPOS_CENTERMOUSE` — opens under the mouse (1.8; was WPOS_TOPLEFT)
-- `WA_Width, 250` / `WA_Height, 250`
+- GadTools via gtui.c (1.9). Row text "<n> <name>"; `struct CdNode` keeps the
+  device index for SET_NEXT_CD and the bare name for CDChanger.lastcd
+- Disc changes only on the Select button (or its S key), never on a list click
+- No sorting — ISOs displayed in device (timestamp) order
+- Opens 250x250 centred under the mouse
 
 ### `src/SDTransfer.c`
+- GadTools via gtui.c (1.9); progress through `gtui_SetStatus(ui, NULL, pc)`
 - Uses `sprintf` not `snprintf` — avoids 38 KB of float printf bloat
-- `WINDOW_Position, WPOS_CENTERMOUSE` (1.8; was WPOS_TOPLEFT)
-- Workbench startup uses `argv[0]` for WBStartup pointer + `CurrentDir` before `GetDiskObject`
+- DEVICE/UNIT parsing (CLI + Tool Types, `argv[0]` = WBStartup) is `gtui_GetArgs`
 
 ### `src/toolbox.h`
 - `extern int filecount` declaration

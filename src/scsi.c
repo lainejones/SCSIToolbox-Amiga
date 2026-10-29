@@ -83,6 +83,16 @@ static int filesAlloc = 0;
 /* Setup the SCSI device */
 int scsi_setup(char *scsi_dev, int scsi_unit)
 {
+#ifdef TESTMODE
+   /* No device at all: just the buffers and a faked INQUIRY, so the GUIs can
+      be laid out on a machine (or emulator) without a BlueSCSI/ZuluSCSI. */
+   (void)scsi_dev; (void)scsi_unit;
+   if ((scsi_cmd = (struct SCSICmd *)AllocMem(sizeof(struct SCSICmd), MEMF_CLEAR)) == NULL ||
+       (scsi_sense = (UBYTE *)AllocMem(SENSE_LEN, MEMF_CLEAR)) == NULL ||
+       (scsi_data = (UBYTE *)AllocMem(MAX_DATA_LEN, MEMF_CLEAR)) == NULL)
+      return -1;
+   return Toolbox_InitDevice();
+#endif
    if ((scsiPort = CreateMsgPort()) == NULL)
    {
       return -1;

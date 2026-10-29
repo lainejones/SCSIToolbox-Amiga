@@ -82,10 +82,10 @@ SCSI data direction and transfer lengths — see History).
 
 - **The CLI tool (`BlueSCSIToolbox`) and `sharedfs`:** AmigaOS 2.04 or newer
   (dos.library and utility.library V37). `SHARED:` is tested on Kickstart 3.1.
-- **CDChanger and SDTransfer:** the ReAction classes at V44 (window.class,
-  layout.gadget, listbrowser.gadget, label.image, plus fuelgauge.gadget and
-  asl.library V44 for SDTransfer), i.e. OS 3.5 or newer; ClassAct on 3.1 is older
-  than V44 and is not enough.
+- **CDChanger and SDTransfer:** AmigaOS 2.04 or newer. From 1.9 they use
+  GadTools instead of ReAction, so no ClassAct/ReAction classes are needed:
+  only intuition, graphics, gadtools, asl, icon and utility V37, all in ROM or
+  on the Workbench disk. Tested on Kickstart/Workbench 3.1 and 3.2.3.
 - Up to 1.8.1, `sharedfs` and the GUIs copied listing names with utility.library's
   `Strncpy`, which only exists from AmigaOS 3.2 (V47): on 3.1-3.9 any `SHARED:`
   listing or GUI file list crashed the machine. 1.8.2 fixes that.
@@ -191,6 +191,15 @@ repository.
 
 *From 1.7 on, every tool carries the suite version.*
 
+* 1.9 — **CDChanger and SDTransfer run on AmigaOS 3.1 (and 2.04+)**: the
+  ReAction interface is replaced by GadTools, shared by both tools
+  (`src/gtui.c`). Same layout and behaviour: logo, device line, list,
+  buttons, SDTransfer status line with a progress bar; the windows still open
+  under the mouse and can be resized. Double-click and the underlined key
+  letters work as before; there is no iconify gadget any more (that was a
+  ReAction feature). SDTransfer shows the busy pointer while downloading
+  (OS 3.0+), and its Save requester opens over its window in save mode.
+  CDChanger lost three unused DosList scans at startup.
 * 1.8.3 — audit fixes. SDTransfer no longer spins at 100% CPU while idle
   (`Wait()` was outside the event loop) and no longer downloads when the Save
   requester is cancelled. The CLI gets the same CloseDevice-after-failed-open

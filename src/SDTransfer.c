@@ -5,6 +5,8 @@
  * Added SD-card subdirectory navigation (firmware v2026.04.27+ working-dir
  * support): directories are listed with a trailing "/", the "/" entry goes up,
  * and the Open/Download button descends into a selected directory.
+ * Modified 2026-10-28: GadTools user interface (gtui.c) instead of ReAction,
+ * so it runs on AmigaOS 2.04/3.0/3.1 without ClassAct/ReAction installed.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,58 +23,29 @@
  */
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
-#include <proto/asl.h>
+#include <exec/memory.h>
+#include <libraries/asl.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
-#include <proto/icon.h>
-#include <proto/layout.h>
-#include <proto/label.h>
-#include <proto/listbrowser.h>
 #include <proto/intuition.h>
-#include <proto/utility.h>
-#include <proto/window.h>
-#include <proto/expansion.h>
+#include <proto/asl.h>
 #include <clib/alib_protos.h>
-#include <classes/window.h>
-#include <gadgets/layout.h>
-#include <gadgets/button.h>
-#include <gadgets/listbrowser.h>
-#include <gadgets/palette.h>
-#include <proto/fuelgauge.h>
-#include <images/label.h>
-#include <reaction/reaction_macros.h>
-#include <devices/scsidisk.h>
-#include <graphics/gfx.h>
-#include <workbench/startup.h>
 #include "toolbox.h"
+#include "gtui.h"
 
-__attribute__((used)) static const char ver[] = "$VER: SDTransfer 1.8.3 (28.10.2026)";
+__attribute__((used)) static const char ver[] = "$VER: SDTransfer 1.9 (28.10.2026)";
 
-/* Node kinds stored in LBNA_UserData */
+/* Kinds of list row */
 #define NODE_DIR    0
 #define NODE_FILE   1
 #define NODE_PARENT 2
 
-void FreeListBrowserNodes(void);
-BOOL AddListBrowserNode(ULONG kind, STRPTR filename);
-BOOL RefreshFileList(void);
-int DirDescend(const char *name);
-int DirAscend(void);
-void OpenOrDownload(Object *listBrowser);
-void progress(int pc);
-BOOL getfilename(char *name, char *title);
-void format_size(char *buffer, int length, ULONG size);
-void bstrcpy(char *dest, UBYTE *src);
-
-/* GCC: = NULL makes these STRONG symbols so libstubs.a won't auto-open them */
-struct Library *WindowBase = NULL, *LayoutBase = NULL, *LabelBase = NULL, *ListBrowserBase = NULL;
-struct Library *UtilityBase = NULL, *FuelGaugeBase = NULL, *IconBase = NULL, *AslBase = NULL;
+/* = NULL: strong definitions, so the startup code does not try to open these */
+struct Library *UtilityBase = NULL, *AslBase = NULL;
 struct IntuitionBase *IntuitionBase = NULL;
-struct MsgPort *AppPort;
 
-UBYTE scsi_dev[1024];
-LONG scsi_unit = -1;
+static char scsi_dev[256];
+static LONG scsi_unit = -1;
 
 /* Working-directory navigation state (firmware CAP_SET_WORKING_DIR).
    gCurPath = absolute SD path currently browsed (starts at the device
@@ -81,191 +54,55 @@ LONG scsi_unit = -1;
 static int gHaveDirs = 0;
 static char gCurPath[80];
 
-static char *readArgsTemplate = "DEVICE/K,UNIT/K/N";
-static char* appname = "SD Transfer";
-static char fuelGaugeText[MAXPATH + 48];
+static char *appname = "SD Transfer";
 
-enum ToolboxParams
+/* One list row. ln_Name points at text, which lives as long as the row. */
+#define MAX_NODES 128
+struct SdNode
 {
-   DEVICE,
-   UNIT,
+   struct Node node;
+   UBYTE kind;
+   char text[40];
 };
+static struct SdNode gNodes[MAX_NODES];
+static int gNodeCount = 0;
+static struct List gList;
 
-enum Gadgets
-{
-   GID_DOWNLOAD,
-   GID_LISTBROWSER,
-   GID_FUELGAUGE,
-};
-
-struct List gb_List;
-struct ColumnInfo gb_ListbrowserColumn[] =
-{
-   { 170, "Image", 0 },
-   {  -1, (STRPTR)~0, (ULONG)-1 }
-};
+static struct GtUI ui;
 
 extern UWORD bluescsi_logo_data[];
 extern UWORD zuluscsi_logo_data[];
-#define LOGO_WIDTH  192
-#define LOGO_HEIGHT 71
-#define LOGO_DATA_SIZE (RASSIZE(LOGO_WIDTH, LOGO_HEIGHT))
-UWORD *chip_logo_data = NULL;
-struct Image logo_image =
-{
-    0, 0,             // LeftEdge, TopEdge
-    LOGO_WIDTH, LOGO_HEIGHT, 1,  // Width, Height, Depth
-    NULL,        // ImageData
-    0x0001, 0x0000,   // PlanePick, PlaneOnOff
-    NULL              // NextImage
-};
 
-struct Window *mainWindow;
-Object *fuelGauge;
+static BOOL RefreshFileList(void);
+static void OpenOrDownload(LONG row);
 
 int main(int argc, char **argv)
 {
-   struct RDArgs *rd;
-   LONG params[] = {0, 0};
-   char scsi_msg[50];
-   APTR windowObj;
-   Object *listBrowser;
+   char info[80];
 
-   /* SAS/C startup sets pr_WindowPtr = -1 automatically to suppress DOS
-      volume requesters. GCC startup does not, so we do it explicitly. */
-   {
-      struct Process *myproc = (struct Process *)FindTask(NULL);
-      myproc->pr_WindowPtr = (APTR)-1L;
-   }
+   /* GCC startup does not set pr_WindowPtr = -1 like SAS/C does: suppress
+      DOS volume requesters ourselves before any DOS activity. */
+   ((struct Process *)FindTask(NULL))->pr_WindowPtr = (APTR)-1L;
 
    { const char * volatile keepver = ver; (void)keepver; } /* keep $VER through --gc-sections */
-   if ((IntuitionBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 33L)) == NULL)
+
+   if (!(IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 37)))
    {
-      PutStr("Could not open intuition.library\n");
+      PutStr("Needs AmigaOS 2.04 or newer\n");
       goto exit;
    }
-   if ((WindowBase = OpenLibrary("window.class", 0)) == NULL)
+   if (!(UtilityBase = OpenLibrary("utility.library", 37)) ||
+       !(AslBase = OpenLibrary("asl.library", 37)))
    {
-      MessageBox(appname, "Could not open window.class\n");
-      goto exit;
-   }
-   if ((UtilityBase = OpenLibrary("utility.library", 37L)) == NULL)
-   {
-      MessageBox(appname, "Could not open utility.library\n");
-      goto exit;
-   }
-   if ((AslBase = OpenLibrary("asl.library", 44L)) == NULL)
-   {
-      MessageBox(appname, "Could not open asl.library\n");
-      goto exit;
-   }
-   if ((ListBrowserBase = OpenLibrary("gadgets/listbrowser.gadget", 44)) == NULL)
-   {
-      MessageBox(appname, "Could not open listbrowser.gadget");
-      goto exit;
-   }
-   if ((LayoutBase = OpenLibrary("gadgets/layout.gadget", 44)) == NULL)
-   {
-      MessageBox(appname, "Could not open layout.gadget");
-      goto exit;
-   }
-   if ((LabelBase = OpenLibrary("images/label.image", 44)) == NULL)
-   {
-      MessageBox(appname, "Could not open label.image");
-      goto exit;
-   }
-   if ((FuelGaugeBase = OpenLibrary("gadgets/fuelgauge.gadget", 44)) == NULL)
-   {
-      MessageBox(appname, "Could not open fuelgauge.gadget");
-      goto exit;
-   }
-   if ((AppPort = CreateMsgPort()) == NULL)
-   {
+      MessageBox(appname, "Could not open utility.library or asl.library");
       goto exit;
    }
 
-   if (argc==0)
-   {
-      // Started from Workbench. Read tooltypes
-      IconBase = OpenLibrary("icon.library", 33L);
-      if (IconBase != NULL && argv != NULL && argv[0] != NULL)
-      {
-         LONG i;
-         struct WBStartup *WBenchMsg = (struct WBStartup *)argv[0];
-         struct WBArg *wbarg;
-
-         if (WBenchMsg->sm_ArgList != NULL)
-         {
-            wbarg = WBenchMsg->sm_ArgList;
-            for (i = 0; i < WBenchMsg->sm_NumArgs; i++, wbarg++)
-            {
-               struct DiskObject *dobj;
-               STRPTR s;
-
-               if (wbarg->wa_Name != NULL && wbarg->wa_Name[0] != '\0')
-               {
-                  BPTR oldlock = CurrentDir(wbarg->wa_Lock);
-                  dobj = GetDiskObject(wbarg->wa_Name);
-                  CurrentDir(oldlock);
-
-                  if (dobj)
-                  {
-                     STRPTR *toolarray = (STRPTR *)dobj->do_ToolTypes;
-                     s = (STRPTR)FindToolType(toolarray, "DEVICE");
-                     if (s != NULL)
-                        strncpy((char *)scsi_dev, (char *)s, sizeof(scsi_dev));
-                     s = (STRPTR)FindToolType(toolarray, "UNIT");
-                     if (s != NULL)
-                        StrToLong(s, &scsi_unit);
-                     FreeDiskObject(dobj);
-                     break;
-                  }
-               }
-            }
-         }
-      }
-
-      if (scsi_dev[0] == '\0' || scsi_unit < 0)
-      {
-         MessageBox(appname, "Missing SCSI device or unit");
-         goto exit;
-      }
-   }
-   else
-   {
-      // Started from CLI
-      rd = ReadArgs(readArgsTemplate, params, NULL);
-      if (rd)
-      {
-         if (params[DEVICE])
-         {
-            strncpy(scsi_dev, (UBYTE *)params[DEVICE], sizeof(scsi_dev));
-         }
-         if (params[UNIT])
-         {
-            scsi_unit = (*((ULONG *)params[UNIT]));
-         }
-      }
-      else
-      {
-         SetIoErr(ERROR_REQUIRED_ARG_MISSING);
-         PrintFault(IoErr(), argv[0]);
-         goto exit;
-      }
-      FreeArgs(rd);
-
-      if (scsi_dev[0] == '\0' || scsi_unit < 0)
-      {
-         SetIoErr(ERROR_REQUIRED_ARG_MISSING);
-         PrintFault(IoErr(), argv[0]);
-         goto exit;
-      }
-   }
+   if (!gtui_GetArgs(argc, argv, appname, scsi_dev, sizeof(scsi_dev), &scsi_unit))
+      goto exit;
 
    if (scsi_setup(scsi_dev, scsi_unit) != 0)
-   {
       goto exit;
-   }
 
    if (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR)
    {
@@ -273,209 +110,57 @@ int main(int argc, char **argv)
          gHaveDirs = 1;
    }
 
-   chip_logo_data = (UWORD *)AllocVec(LOGO_DATA_SIZE, MEMF_CHIP);
-   if (chip_logo_data) {
-      CopyMem(scsi_isZuluSCSI ? zuluscsi_logo_data : bluescsi_logo_data,
-              chip_logo_data, LOGO_DATA_SIZE);
-      logo_image.ImageData = chip_logo_data;
-   }
-
-   NewList(&gb_List);
-
-   // Read the SD Card Files
+   NewList(&gList);
    if (!RefreshFileList())
+      goto exit;
+
+   sprintf(info, "Device:%.40s Unit:%ld", scsi_dev, scsi_unit);
+
+   ui.title = appname;
+   ui.info = info;
+   ui.logoData = scsi_isZuluSCSI ? zuluscsi_logo_data : bluescsi_logo_data;
+   ui.labels = &gList;
+   ui.nButtons = 1;
+   ui.buttonText[0] = "_Open / Download";
+   ui.hasStatus = TRUE;
+
+   if (!gtui_Open(&ui, 250, 250))
    {
+      MessageBox(appname, "Could not open window");
       goto exit;
    }
 
-   sprintf(scsi_msg, "Device:%s Unit:%ld", scsi_dev, scsi_unit);
-
-   windowObj = WindowObject,
-      WA_Title, appname,
-      WA_Activate, TRUE,
-      WA_DepthGadget, TRUE,
-      WA_DragBar, TRUE,
-      WA_CloseGadget, TRUE,
-      WA_SizeGadget, TRUE,
-      WA_Width, 250,
-      WA_Height, 250,
-      WINDOW_IconifyGadget, TRUE,
-      WINDOW_IconTitle, appname,
-      WINDOW_AppPort, AppPort,
-      WINDOW_Position, WPOS_CENTERMOUSE,
-      WINDOW_ParentGroup, VLayoutObject,
-         LAYOUT_SpaceOuter, TRUE,
-         LAYOUT_DeferLayout, TRUE,
-
-         // BlueSCSI Logo
-         LAYOUT_AddChild, VLayoutObject,
-            LAYOUT_VertAlignment, LALIGN_CENTER,
-            LAYOUT_HorizAlignment, LALIGN_CENTER,
-            LAYOUT_BevelStyle, BVS_THIN,
-            LAYOUT_AddChild,
-               ButtonObject,
-               GA_Image, &logo_image,
-               GA_ReadOnly, TRUE,
-               BUTTON_BevelStyle, BVS_NONE,
-            End,
-            CHILD_MaxWidth, 200,
-         End,
-         CHILD_MaxHeight, 81,
-
-         // Current SCSI device
-         LAYOUT_AddImage,
-            LabelObject,
-               LABEL_Text, scsi_msg,
-            End,
-
-         // ListBrowser with the SD files
-         LAYOUT_AddChild,
-            listBrowser = ListBrowserObject,
-               GA_ID, GID_LISTBROWSER,
-               GA_RelVerify, TRUE,
-               LISTBROWSER_ColumnInfo, &gb_ListbrowserColumn,
-               LISTBROWSER_ColumnTitles, TRUE,
-               LISTBROWSER_Labels, &gb_List,
-               LISTBROWSER_VertSeparators, TRUE,
-               LISTBROWSER_Spacing, 1,
-               LISTBROWSER_ShowSelected, TRUE,
-               LISTBROWSER_AutoFit, TRUE,
-               LISTBROWSER_Editable, FALSE,
-               LISTBROWSER_MinVisible, 5,
-               LISTBROWSER_RelEvent, LBRE_DOUBLECLICK,
-            End,
-
-         // Download button
-         LAYOUT_AddChild,
-            ButtonObject,
-               GA_ID, GID_DOWNLOAD,
-               GA_RelVerify, TRUE,
-               GA_Text, "_Open / Download",
-            End,
-            CHILD_MinHeight, 20,
-            CHILD_MaxHeight, 20,
-
-         // Progress
-         LAYOUT_AddChild,
-            fuelGauge = FuelGaugeObject,
-               GA_ID, GID_FUELGAUGE,
-               GA_RelVerify, TRUE,
-               GA_Text, "",
-               FUELGAUGE_Min, 0,
-               FUELGAUGE_Max, 100,
-               FUELGAUGE_Level, 0,
-               FUELGAUGE_Percent, FALSE,
-               FUELGAUGE_FillPen, FILLPEN,
-               FUELGAUGE_Ticks, 0,
-            End,
-            CHILD_MaxHeight, 20,
-
-      EndGroup,
-   EndWindow;
-
-   mainWindow = (struct Window *)RA_OpenWindow(windowObj);
-   if (mainWindow)
+   for (;;)
    {
-      ULONG done = FALSE;
-      ULONG result;
-      ULONG code;
-      ULONG signal;
-      ULONG app = (1L << AppPort->mp_SigBit);
+      LONG arg = 0;
+      int ev = gtui_Wait(&ui, &arg);
 
-      /* Obtain the window wait signal mask */
-      GetAttr(WINDOW_SigMask, windowObj, &signal);
-
-      while (!done)
-      {
-         /* Block until the window, AppWindow or Ctrl-C signals - without this
-            inside the loop the task spins at 100% CPU polling the port. */
-         Wait(signal | SIGBREAKF_CTRL_C | app);
-         while ((result = RA_HandleInput(windowObj, &code)) != WMHI_LASTMSG)
-         {
-            switch (result & WMHI_CLASSMASK)
-            {
-               case WMHI_RAWKEY:
-                  if ((result & WMHI_KEYMASK) == RAWKEY_ESC)
-                  {
-                     done = TRUE;
-                  }
-                  break;
-               case WMHI_CLOSEWINDOW:
-                  done = TRUE;
-                  break;
-               case WMHI_GADGETUP:
-                  switch (result & WMHI_GADGETMASK)
-                  {
-                     case GID_LISTBROWSER:
-                        {
-                           // Double-click = same action as the button
-                           ULONG rel = 0;
-                           GetAttr(LISTBROWSER_RelEvent, listBrowser, &rel);
-                           if (rel == LBRE_DOUBLECLICK)
-                              OpenOrDownload(listBrowser);
-                        }
-                        break;
-                     case GID_DOWNLOAD:
-                        OpenOrDownload(listBrowser);
-                        break;
-                  }
-                  break;
-               case WMHI_ICONIFY:
-                  RA_Iconify(windowObj);
-                  mainWindow = NULL;
-                  break;
-               case WMHI_UNICONIFY:
-                  mainWindow = (struct Window *)RA_OpenWindow(windowObj);
-                  if (mainWindow)
-                  {
-                     GetAttr(WINDOW_SigMask, windowObj, &signal);
-                  }
-                  else
-                  {
-                     done = TRUE;
-                  }
-                  break;
-               default:
-                  //printf("%lx\n", result & WMHI_CLASSMASK);
-                  break;
-            }
-         }
-      }
-
-      DisposeObject( windowObj );
-
-      FreeListBrowserNodes();
-   }
-   else
-   {
-      MessageBox(appname, "Could not open window\n");
+      if (ev == GTUI_QUIT)
+         break;
+      if (ev == GTUI_BUTTON)
+         OpenOrDownload(ui.selected);
+      else if (ev == GTUI_OPEN)                  /* double-click = the button */
+         OpenOrDownload(arg);
    }
 
 exit:
+   gtui_Close(&ui);
    if (gHaveDirs)
-      Toolbox_Set_Working_Dir("");   /* leave the device at its default dir */
-   if (chip_logo_data) FreeVec(chip_logo_data);
+      Toolbox_Set_Working_Dir("");               /* leave the device at its default dir */
    scsi_cleanup();
-
-   if (AppPort) DeleteMsgPort(AppPort);
-   if (IconBase) CloseLibrary(IconBase);
-   if (FuelGaugeBase) CloseLibrary(FuelGaugeBase);
-   if (LabelBase) CloseLibrary(LabelBase);
-   if (LayoutBase) CloseLibrary(LayoutBase);
-   if (ListBrowserBase) CloseLibrary(ListBrowserBase);
-   if (WindowBase) CloseLibrary(WindowBase);
    if (AslBase) CloseLibrary(AslBase);
    if (UtilityBase) CloseLibrary(UtilityBase);
    if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
+   return 0;
 }
 
-/* Update progress */
-void progress(int pc)
+/* Toolbox_Download progress callback */
+static void progress(int pc)
 {
-   SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL, FUELGAUGE_Level, pc, TAG_END);
+   gtui_SetStatus(&ui, NULL, pc);
 }
 
-void format_size(char *buffer, int length, ULONG size)
+static void format_size(char *buffer, int length, ULONG size)
 {
    char temp[32];
    int pos = sizeof(temp) - 1;
@@ -491,51 +176,33 @@ void format_size(char *buffer, int length, ULONG size)
    buffer[length - 1] = '\0';
 }
 
-/* Per-node display strings. LBNCA_CopyText proved unreliable with stack
-   buffers (garbled names on hardware, 2026-08-06) - like LBNCA_Integer, don't
-   trust it: give every node a pointer that stays valid until the next refresh. */
-#define MAX_NODES 128
-static char gNodeText[MAX_NODES][40];
-static int gNodeCount = 0;
-
-/* Add an entry to the browser. kind: NODE_DIR (shown with a trailing "/"),
-   NODE_FILE, or NODE_PARENT (shown as "/"). */
-BOOL AddListBrowserNode(ULONG kind, STRPTR filename)
+/* Add a row. kind: NODE_DIR (shown with a trailing "/"), NODE_FILE, or
+   NODE_PARENT (shown as "/"). */
+static BOOL AddNode(UBYTE kind, const char *name)
 {
-  struct Node *node;
-  char *display;
-  struct TagItem tags[] = {
-      {LBNA_Generation,    2},
-      {LBNA_Column,        0},
-      {LBNCA_Text,         0},
-      {LBNCA_Justification,LCJ_LEFT},
-      {LBNA_UserData,      kind},
-      {TAG_END,            0}
-  };
-  if (gNodeCount >= MAX_NODES)
-     return FALSE;
-  display = gNodeText[gNodeCount];
-  strncpy(display, filename, 38);
-  display[38 - 1] = '\0';
-  if (kind == NODE_DIR)
-     strcat(display, "/");
-  tags[2].ti_Data = (ULONG)display;
-  if((node = AllocListBrowserNodeA(2, tags)))
-  {
-    gNodeCount++;
-    AddTail(&gb_List,node);
-  }
-  return (BOOL)( node ? TRUE : FALSE );
+   struct SdNode *n;
+
+   if (gNodeCount >= MAX_NODES)
+      return FALSE;
+   n = &gNodes[gNodeCount++];
+   strncpy(n->text, name, sizeof(n->text) - 2);
+   n->text[sizeof(n->text) - 2] = '\0';
+   if (kind == NODE_DIR)
+      strcat(n->text, "/");
+   n->kind = kind;
+   n->node.ln_Name = n->text;
+   AddTail(&gList, &n->node);
+   return TRUE;
 }
 
-/* Rebuild gb_List from the device's current working directory. Returns FALSE
-   only on SCSI failure (an empty directory is fine). The listbrowser must be
-   detached (or not yet created) when this is called. */
-BOOL RefreshFileList(void)
+/* Rebuild the list from the device's current working directory. Returns FALSE
+   only on SCSI failure (an empty directory is fine). The list must be detached
+   from the gadget (or the window not open yet) while this runs. */
+static BOOL RefreshFileList(void)
 {
    struct FileEntry *file;
 
-   FreeListBrowserNodes();
+   NewList(&gList);
    gNodeCount = 0;
 
    file = Toolbox_List_Files(0);
@@ -543,17 +210,16 @@ BOOL RefreshFileList(void)
       return FALSE;
 
    if (gHaveDirs && strcmp(gCurPath, "/") != 0)
-      AddListBrowserNode(NODE_PARENT, "/");
+      AddNode(NODE_PARENT, "/");
 
    if (file)
    {
-      while (file->Type >= 0)
+      for (; file->Type >= 0; file++)
       {
          if (file->Type == BLUESCSI_FILE)
-            AddListBrowserNode(NODE_FILE, file->Name);
+            AddNode(NODE_FILE, file->Name);
          else if (gHaveDirs && file->Type == BLUESCSI_DIR)
-            AddListBrowserNode(NODE_DIR, file->Name);
-         file++;
+            AddNode(NODE_DIR, file->Name);
       }
    }
    return TRUE;
@@ -568,7 +234,7 @@ static int ApplyWorkingDir(void)
 }
 
 /* Descend into subdirectory 'name' (display form; trailing '/' stripped). */
-int DirDescend(const char *name)
+static int DirDescend(const char *name)
 {
    char leaf[40];
    int len;
@@ -598,7 +264,7 @@ int DirDescend(const char *name)
 }
 
 /* Go up one directory level; the SD card root "/" is the floor. */
-int DirAscend(void)
+static int DirAscend(void)
 {
    char old[sizeof(gCurPath)];
    char *p;
@@ -620,109 +286,9 @@ int DirAscend(void)
    return 0;
 }
 
-/* Act on the selected entry: descend into a dir, ascend on the "/" row,
-   download a file. Shared by the button and listbrowser double-click. */
-void OpenOrDownload(Object *listBrowser)
-{
-   struct Node *node;
-   ULONG userdata;
-   ULONG kind = NODE_FILE;
-
-   GetAttr(LISTBROWSER_SelectedNode, listBrowser, (ULONG*) &node);
-   if (!node)
-      return;
-
-   {
-      struct TagItem gtags[] = {
-          {LBNA_Column,  0},
-          {LBNCA_Text,   (ULONG)&userdata},
-          {LBNA_UserData,(ULONG)&kind},
-          {TAG_DONE,     0}
-      };
-      GetListBrowserNodeAttrsA(node, gtags);
-   }
-   if (!userdata)
-      return;
-
-   if (kind != NODE_FILE)
-   {
-      // Directory navigation: rebuild the list
-      int navres;
-      SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
-                     LISTBROWSER_Labels, ~0, TAG_END);
-      if (kind == NODE_PARENT)
-         navres = DirAscend();
-      else
-         navres = DirDescend((char *)userdata);
-      if (navres == 0)
-         RefreshFileList();
-      SetGadgetAttrs((struct Gadget *)listBrowser, mainWindow, NULL,
-                     LISTBROWSER_Labels, &gb_List, TAG_END);
-      sprintf(fuelGaugeText, "Dir: %s", gCurPath);
-      SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
-                     GA_Text, fuelGaugeText,
-                     FUELGAUGE_Percent, FALSE,
-                     TAG_END);
-   }
-   else
-   {
-      char *source = (char *) userdata;
-      char destination[MAXPATH];
-
-      // Set the fuelGauge to %
-      SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL, FUELGAUGE_Percent, TRUE, FUELGAUGE_Level, 0, TAG_END);
-
-      strncpy(destination, source, MAXPATH);
-      destination[MAXPATH - 1] = '\0';
-
-      /* Only download if the requester was confirmed - Cancel used to fall
-         through and save the file under its remote name anyway. */
-      if (getfilename(destination, "Save As"))
-      {
-         ULONG bytes = Toolbox_Download(source, destination, progress);
-         if (bytes > 0)
-         {
-            char size_text[32];
-
-            format_size(size_text, sizeof(size_text), bytes);
-            sprintf(fuelGaugeText, "%s bytes saved to %s", size_text, destination);
-            SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL,
-                           GA_Text, fuelGaugeText,
-                           FUELGAUGE_Percent, FALSE,
-                           TAG_END);
-         }
-      }
-   }
-}
-
-/* Free the browser nodes */
-void FreeListBrowserNodes(void)
-{
-  struct Node *node, *nextnode;
-  node = gb_List.lh_Head;
-
-  while((nextnode = node->ln_Succ))
-  {
-    Remove(node);
-    FreeListBrowserNode(node);
-    node = nextnode;
-  }
-}
-
-/* Copy a BCPL string to a C string */
-void bstrcpy(char *dest, UBYTE *src)
-{
-   int len = *src++;
-   strncpy(dest, src, len + 1);
-   dest[len] = 0;
-}
-
-/*
-** getfilename()
-** - ask the user for a file name using the ASL file requester
-** - returns TRUE if the user confirmed, FALSE if cancelled (name untouched)
-*/
-BOOL getfilename(char *name, char *title)
+/* Ask for a destination. Returns TRUE if the user confirmed, FALSE if
+   cancelled (name untouched). */
+static BOOL getfilename(char *name, char *title)
 {
    struct FileRequester *fr;
    BOOL ok = FALSE;
@@ -733,21 +299,25 @@ BOOL getfilename(char *name, char *title)
    {
       strncpy(dirname, name, MAXPATH);
       dirname[MAXPATH - 1] = '\0';
-      filename = (STRPTR) PathPart(dirname);
+      filename = (STRPTR)PathPart(dirname);
       filename[0] = '\0';
-      filename = (STRPTR) FilePart(name);
-   } else
+      filename = (STRPTR)FilePart(name);
+   }
+   else
    {
       dirname[0] = '\0';
       filename = dirname;
    }
 
-   if (fr = (struct FileRequester *)
-            AllocAslRequestTags(ASL_FileRequest,
-                                ASLFR_TitleText,     (ULONG) title,
-                                ASLFR_InitialFile,   (ULONG) filename,
-                                ASLFR_InitialDrawer, (ULONG) dirname,
-                                TAG_DONE))
+   if ((fr = (struct FileRequester *)
+             AllocAslRequestTags(ASL_FileRequest,
+                                 ASLFR_Window,        (ULONG)ui.win,
+                                 ASLFR_SleepWindow,   TRUE,
+                                 ASLFR_TitleText,     (ULONG)title,
+                                 ASLFR_InitialFile,   (ULONG)filename,
+                                 ASLFR_InitialDrawer, (ULONG)dirname,
+                                 ASLFR_DoSaveMode,    TRUE,
+                                 TAG_DONE)))
    {
       if (AslRequest(fr, NULL))
       {
@@ -758,4 +328,57 @@ BOOL getfilename(char *name, char *title)
       FreeAslRequest(fr);
    }
    return ok;
+}
+
+/* Act on a row: descend into a dir, ascend on the "/" row, download a file.
+   Shared by the button and double-click. */
+static void OpenOrDownload(LONG row)
+{
+   static char msg[MAXPATH + 48];
+   struct SdNode *n = (struct SdNode *)gtui_NodeAt(&gList, row);
+
+   if (!n)
+      return;
+
+   if (n->kind != NODE_FILE)
+   {
+      int navres;
+
+      gtui_DetachList(&ui);
+      navres = (n->kind == NODE_PARENT) ? DirAscend() : DirDescend(n->text);
+      if (navres == 0)
+         RefreshFileList();                       /* n is invalid from here */
+      gtui_AttachList(&ui, &gList, -1);
+      sprintf(msg, "Dir: %s", gCurPath);
+      gtui_SetStatus(&ui, msg, -1);
+   }
+   else
+   {
+      char source[sizeof(n->text)];
+      char destination[MAXPATH];
+
+      strcpy(source, n->text);
+      strcpy(destination, source);
+
+      /* Only download if the requester was confirmed */
+      if (getfilename(destination, "Save As"))
+      {
+         ULONG bytes;
+
+         gtui_Busy(&ui, TRUE);
+         gtui_SetStatus(&ui, NULL, 0);
+         bytes = Toolbox_Download(source, destination, progress);
+         gtui_Busy(&ui, FALSE);
+         if (bytes > 0)
+         {
+            char size_text[32];
+
+            format_size(size_text, sizeof(size_text), bytes);
+            sprintf(msg, "%s bytes saved to %.900s", size_text, destination);
+            gtui_SetStatus(&ui, msg, -1);
+         }
+         else
+            gtui_SetStatus(&ui, NULL, -1);        /* back to the previous text */
+      }
+   }
 }
