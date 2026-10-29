@@ -1,0 +1,57 @@
+.KEY TEXTFILE/A,EXE,BIGFILE/A
+.BRA {
+.KET }
+.DEF EXE List
+; SharedSpeed - timed read/write tests against a mounted SHARED: volume.
+; Usage:  Execute SharedSpeed <textfile> [exe] <bigfile>
+;   textfile : a ~100 KB text file in SHARED:          (Type'd 5 times)
+;   exe      : a CLI program in SHARED:, default List  (run 10 times as "<exe> RAM:")
+;   bigfile  : a ~1 MB file in SHARED:                 (copied down, then back up)
+; Put the files there first, e.g.  Copy C:List SHARED:   and  Copy S:Startup-Sequence SHARED:
+; Resolution is Date's one second, so read the before/after lines and subtract.
+; Run once with the 1.8.2 sharedfs in L: and once with 1.8.3, same files.
+FailAt 21
+Echo "SharedSpeed: SHARED: must be mounted. Files: {TEXTFILE} {EXE} {BIGFILE}"
+Echo ""
+
+Echo "--- 1: Type SHARED:{TEXTFILE} >NIL: x5  (small sequential reads)"
+Date
+Type SHARED:{TEXTFILE} >NIL:
+Type SHARED:{TEXTFILE} >NIL:
+Type SHARED:{TEXTFILE} >NIL:
+Type SHARED:{TEXTFILE} >NIL:
+Type SHARED:{TEXTFILE} >NIL:
+Date
+Echo ""
+
+Echo "--- 2: run SHARED:{EXE} RAM: >NIL: x10  (LoadSeg, 4-byte reads)"
+Date
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+SHARED:{EXE} RAM: >NIL:
+Date
+Echo ""
+
+Echo "--- 3: Copy SHARED:{BIGFILE} RAM:SharedSpeed.tmp  (large reads)"
+Date
+Copy SHARED:{BIGFILE} RAM:SharedSpeed.tmp
+Date
+List RAM:SharedSpeed.tmp
+Echo ""
+
+Echo "--- 4: Copy RAM:SharedSpeed.tmp SHARED:up_{BIGFILE}  (upload, 512-byte blocks)"
+Date
+Copy RAM:SharedSpeed.tmp SHARED:up_{BIGFILE}
+Date
+List SHARED:up_{BIGFILE}
+Echo ""
+
+Delete RAM:SharedSpeed.tmp QUIET
+Echo "Done. Delete SHARED:up_{BIGFILE} from the PC side when finished (no delete over Toolbox)."
