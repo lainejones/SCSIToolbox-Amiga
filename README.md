@@ -209,8 +209,9 @@ repository.
   (`seekCur`), not absolute; uploads now send 0 ("carry on"). The old absolute
   block numbers only worked on new files: overwriting a file on ZuluSCSI left
   gaps (a 55 KB file came out at 102 KB). `SHARED:` and the CLI `SEND` now
-  refuse to overwrite on ZuluSCSI (it keeps the old tail); BlueSCSI overwrites
-  correctly. Uploads verified byte-identical on both.
+  refuse to overwrite on ZuluSCSI (it keeps the old tail; reported as
+  [ZuluSCSI-firmware#1013](https://github.com/ZuluSCSI/ZuluSCSI-firmware/issues/1013));
+  BlueSCSI overwrites correctly. Uploads verified byte-identical on both.
 * 1.8.3 — audit fixes. SDTransfer no longer spins at 100% CPU while idle
   (`Wait()` was outside the event loop) and no longer downloads when the Save
   requester is cancelled. The CLI gets the same CloseDevice-after-failed-open
