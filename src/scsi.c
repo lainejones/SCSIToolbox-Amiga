@@ -76,6 +76,10 @@ static void numToStr(char *buf, ULONG n)
    buf[j] = '\0';
 }
 
+/* Entries allocated for 'files' (+1 sentinel). Kept apart from filecount so
+   filecount can shrink to what LIST actually returned. */
+static int filesAlloc = 0;
+
 /* Setup the SCSI device */
 int scsi_setup(char *scsi_dev, int scsi_unit)
 {
@@ -124,7 +128,9 @@ int scsi_setup(char *scsi_dev, int scsi_unit)
 
 void scsi_cleanup()
 {
-   if (files) FreeMem(files, sizeof(struct FileEntry) * (filecount + 1));
+   if (files) FreeMem(files, sizeof(struct FileEntry) * (filesAlloc + 1));
+   files = NULL;
+   filesAlloc = 0;
    if (scsi_data) FreeMem(scsi_data, MAX_DATA_LEN);
    if (scsi_sense) FreeMem(scsi_sense, SENSE_LEN);
    if (scsi_cmd) FreeMem(scsi_cmd, sizeof(struct SCSICmd));
@@ -141,9 +147,24 @@ void scsi_cleanup()
    if (scsiPort) DeleteMsgPort(scsiPort);
 }
 
+/* One-page GET_FILE cache for Toolbox_Get_Bytes: AmigaDOS Read() is
+   unbuffered at the packet level, so without this every small read (LoadSeg
+   parsing a hunk header 4 bytes at a time, say) cost a full 4 KB SCSI
+   transfer. Any other SCSI command reuses scsi_data, so DoScsiCmd drops it. */
+static int gPageValid = 0;
+static int gPageIndex = -1;
+static ULONG gPageNo = 0;
+static ULONG gPageActual = 0;
+
+void Toolbox_Drop_Cache(void)
+{
+   gPageValid = 0;
+}
+
 /* Send a SCSI command */
 int DoScsiCmd(UBYTE *data, int datasize, UBYTE *cmd, int cmdsize, UBYTE flags)
 {
+   gPageValid = 0;                     /* scsi_data is about to be overwritten */
    io_ptr->io_Length = sizeof(struct SCSICmd);
    io_ptr->io_Data = scsi_cmd;
    io_ptr->io_Command = HD_SCSICMD;
@@ -260,6 +281,10 @@ int Toolbox_Count_Files(int cdrom)
    if (scsi_cmd->scsi_Actual)
    {
       count = (int)scsi_data[0];
+      /* LIST returns at most one 4096-byte buffer of 40-byte entries; never
+         parse more than fit, whatever COUNT claims. */
+      if (count > MAX_DATA_LEN / ENTRY_SIZE)
+         count = MAX_DATA_LEN / ENTRY_SIZE;
    }
    return count;
 }
@@ -322,8 +347,9 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
    // Free any previous list (the SHARED: handler re-lists repeatedly)
    if (files)
    {
-      FreeMem(files, sizeof(struct FileEntry) * (filecount + 1));
+      FreeMem(files, sizeof(struct FileEntry) * (filesAlloc + 1));
       files = NULL;
+      filesAlloc = 0;
    }
 
    // Get the file count
@@ -334,6 +360,13 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
       UBYTE command[] = {BLUESCSI_TOOLBOX_LIST_FILES, 0, 0, 0, 0, 0, 0, 0, 0, 0};
       int err;
       file = files = (struct FileEntry *)AllocMem(sizeof(struct FileEntry) * (filecount + 1), MEMF_CLEAR);
+      if (files == NULL)
+      {
+         filecount = 0;
+         MessageBox("Toolbox_List_Files", "Out of memory");
+         return NULL;
+      }
+      filesAlloc = filecount;
       if (cdrom)
       {
          command[0] = BLUESCSI_TOOLBOX_LIST_CDS;
@@ -343,15 +376,22 @@ struct FileEntry *Toolbox_List_Files(int cdrom)
                            (UBYTE *)&command, sizeof(command),
                            (SCSIF_READ | SCSIF_AUTOSENSE))) != 0)
       {
-         FreeMem(files, sizeof(struct FileEntry) * (filecount + 1));
+         FreeMem(files, sizeof(struct FileEntry) * (filesAlloc + 1));
          files = NULL;
-         MessageBox("Toolbox_Count_Files", "SCSI error\n");
+         filesAlloc = 0;
+         filecount = 0;
+         MessageBox("Toolbox_List_Files", "SCSI error\n");
          return NULL;
       }
 
-      if (scsi_cmd->scsi_Actual)
       {
          int f;
+         /* Parse only what the device returned, then always write the EOF
+            sentinel: with no data the zeroed array would otherwise read as an
+            endless run of directories (0 == BLUESCSI_DIR) past the end. */
+         int have = (int)(scsi_cmd->scsi_Actual / ENTRY_SIZE);
+         if (have < filecount)
+            filecount = have;
          for (f = 0; f < filecount; f++)
          {
             UBYTE *c = &scsi_data[ENTRY_SIZE * f];
@@ -710,12 +750,23 @@ LONG Toolbox_Get_Bytes(int index, ULONG offset, UBYTE *buf, ULONG len)
       command[4] = (UBYTE)((page >> 8) & 0xFF);
       command[5] = (UBYTE)(page & 0xFF);
 
-      if (DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
-                    (UBYTE *)&command, sizeof(command),
-                    (SCSIF_READ | SCSIF_AUTOSENSE)) != 0)
-         return -1;
+      if (gPageValid && gPageIndex == index && gPageNo == page)
+      {
+         avail = gPageActual;             /* page is still in scsi_data */
+      }
+      else
+      {
+         if (DoScsiCmd((UBYTE *)scsi_data, MAX_DATA_LEN,
+                       (UBYTE *)&command, sizeof(command),
+                       (SCSIF_READ | SCSIF_AUTOSENSE)) != 0)
+            return -1;
 
-      avail = (ULONG)scsi_cmd->scsi_Actual;
+         avail = (ULONG)scsi_cmd->scsi_Actual;
+         gPageValid = 1;                  /* DoScsiCmd cleared it */
+         gPageIndex = index;
+         gPageNo = page;
+         gPageActual = avail;
+      }
       if (avail <= inPage)
          break;                         /* nothing more in this page -> EOF */
 

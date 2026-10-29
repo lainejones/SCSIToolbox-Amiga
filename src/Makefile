@@ -43,7 +43,7 @@ all: BlueSCSIToolbox CDChanger SDTransfer sharedfs
 # hunk entry (_start at offset 0) and jumps to handlerMain; links scsi.o (libc-free)
 # but NOT common.o, so no Intuition is pulled in. See sharedfs.c / CLAUDE.md.
 sharedfs: hstart.o sharedfs.o scsi.o
-	$(CC) -nostartfiles hstart.o sharedfs.o scsi.o -o sharedfs -s
+	$(CC) -nostartfiles hstart.o sharedfs.o scsi.o -o sharedfs -Wl,--gc-sections -s
 
 sharedfs.o: sharedfs.c toolbox.h
 	$(CC) $(CFLAGS) -c sharedfs.c

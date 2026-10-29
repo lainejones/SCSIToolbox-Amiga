@@ -47,7 +47,7 @@
 #include <workbench/startup.h>
 #include "toolbox.h"
 
-__attribute__((used)) static const char ver[] = "$VER: SDTransfer 1.8.2 (2.10.2026)";
+__attribute__((used)) static const char ver[] = "$VER: SDTransfer 1.8.3 (28.10.2026)";
 
 /* Node kinds stored in LBNA_UserData */
 #define NODE_DIR    0
@@ -61,7 +61,7 @@ int DirDescend(const char *name);
 int DirAscend(void);
 void OpenOrDownload(Object *listBrowser);
 void progress(int pc);
-void getfilename(char *name, char *title);
+BOOL getfilename(char *name, char *title);
 void format_size(char *buffer, int length, ULONG size);
 void bstrcpy(char *dest, UBYTE *src);
 
@@ -376,20 +376,20 @@ int main(int argc, char **argv)
    mainWindow = (struct Window *)RA_OpenWindow(windowObj);
    if (mainWindow)
    {
-      ULONG wait;
       ULONG done = FALSE;
       ULONG result;
       ULONG code;
       ULONG signal;
-      struct Node *node;
-      UBYTE app = (1L << AppPort->mp_SigBit);
+      ULONG app = (1L << AppPort->mp_SigBit);
 
       /* Obtain the window wait signal mask */
       GetAttr(WINDOW_SigMask, windowObj, &signal);
-      wait = Wait(signal | SIGBREAKF_CTRL_C | app);
 
       while (!done)
       {
+         /* Block until the window, AppWindow or Ctrl-C signals - without this
+            inside the loop the task spins at 100% CPU polling the port. */
+         Wait(signal | SIGBREAKF_CTRL_C | app);
          while ((result = RA_HandleInput(windowObj, &code)) != WMHI_LASTMSG)
          {
             switch (result & WMHI_CLASSMASK)
@@ -673,9 +673,11 @@ void OpenOrDownload(Object *listBrowser)
       SetGadgetAttrs((struct Gadget *)fuelGauge, mainWindow, NULL, FUELGAUGE_Percent, TRUE, FUELGAUGE_Level, 0, TAG_END);
 
       strncpy(destination, source, MAXPATH);
+      destination[MAXPATH - 1] = '\0';
 
-      getfilename(destination, "Save As");
-      if (destination)
+      /* Only download if the requester was confirmed - Cancel used to fall
+         through and save the file under its remote name anyway. */
+      if (getfilename(destination, "Save As"))
       {
          ULONG bytes = Toolbox_Download(source, destination, progress);
          if (bytes > 0)
@@ -718,10 +720,12 @@ void bstrcpy(char *dest, UBYTE *src)
 /*
 ** getfilename()
 ** - ask the user for a file name using the ASL file requester
+** - returns TRUE if the user confirmed, FALSE if cancelled (name untouched)
 */
-void getfilename(char *name, char *title)
+BOOL getfilename(char *name, char *title)
 {
    struct FileRequester *fr;
+   BOOL ok = FALSE;
    char dirname[MAXPATH];
    char *filename;
 
@@ -749,7 +753,9 @@ void getfilename(char *name, char *title)
       {
          strcpy(name, fr->rf_Dir);
          AddPart(name, fr->rf_File, MAXPATH);
+         ok = TRUE;
       }
       FreeAslRequest(fr);
    }
+   return ok;
 }

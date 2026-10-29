@@ -160,6 +160,10 @@ if mouse was there).
 
 **Fix:** `WINDOW_Position, WPOS_TOPLEFT` instead of `WPOS_CENTERMOUSE`.
 
+**Superseded in 1.8 (commit 0738683):** both GUIs now deliberately use
+`WPOS_CENTERMOUSE` again so a window launched from an icon opens at the icon.
+Do not "fix" it back to `WPOS_TOPLEFT`.
+
 ---
 
 ### Fix 7 — CDChanger window too large
@@ -565,12 +569,12 @@ Do NOT sort the list — sorting breaks the `c[0]` → `SET_NEXT_CD` mapping.
 - `static int g_numcount` tracks display position
 - No `WMHI_GADGETDOWN` handler — disc changes only on explicit Select button press
 - No `qsort` — ISOs displayed in device (timestamp) order
-- `WINDOW_Position, WPOS_TOPLEFT` — opens at top-left
+- `WINDOW_Position, WPOS_CENTERMOUSE` — opens under the mouse (1.8; was WPOS_TOPLEFT)
 - `WA_Width, 250` / `WA_Height, 250`
 
 ### `src/SDTransfer.c`
 - Uses `sprintf` not `snprintf` — avoids 38 KB of float printf bloat
-- `WINDOW_Position, WPOS_TOPLEFT`
+- `WINDOW_Position, WPOS_CENTERMOUSE` (1.8; was WPOS_TOPLEFT)
 - Workbench startup uses `argv[0]` for WBStartup pointer + `CurrentDir` before `GetDiskObject`
 
 ### `src/toolbox.h`

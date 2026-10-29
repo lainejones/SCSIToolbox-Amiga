@@ -62,7 +62,7 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.8.2 (2.10.2026)";
+__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.8.3 (28.10.2026)";
 
 /* Last-CD state shared with CDChanger (see SaveLastCD there) */
 #define LASTCD_ENV     "ENV:CDChanger.lastcd"
@@ -178,6 +178,7 @@ int main(int argc, char* argv[])
    int setdir = 0;
    int getdir = 0;
    int resetdir = 0;
+   int deviceOpened = 0;
 
       { const char * volatile keepver = ver; (void)keepver; } /* keep $VER through --gc-sections */
 GetProgramName(progname, sizeof(progname));
@@ -292,6 +293,7 @@ GetProgramName(progname, sizeof(progname));
       Printf("Error %ld opening SCSI device %s unit %ld\n", io_ptr->io_Error, (ULONG)scsi_dev, scsi_id);
       goto exit;
    }
+   deviceOpened = 1;
    if ((scsi_cmd = (struct SCSICmd *)AllocMem(sizeof(struct SCSICmd), MEMF_CLEAR)) == NULL)
    {
       PutStr("AllocMem scsi_cmd failed\n");
@@ -442,7 +444,11 @@ exit:
    if (scsi_cmd) FreeMem(scsi_cmd, sizeof(struct SCSICmd));
    if (io_ptr)
    {
-      CloseDevice((struct IORequest *)io_ptr);
+      /* Only close what actually opened: some drivers (ExpXDS.device) leave
+         io_Device non-NULL after a failed OpenDevice and CloseDevice then
+         crashes (same as Fix 2 in scsi.c). */
+      if (deviceOpened)
+         CloseDevice((struct IORequest *)io_ptr);
       DeleteIORequest(io_ptr);
    }
    if (mp_ptr) DeleteMsgPort(mp_ptr);
@@ -628,10 +634,19 @@ int Toolbox_Count_Files(int cdrom)
    if (scsi_cmd->scsi_Actual)
    {
       count = (int)scsi_data[0];
+      /* LIST returns at most one 4096-byte buffer of 40-byte entries; never
+         parse more than fit, whatever COUNT claims. */
+      if (count > MAX_DATA_LEN / ENTRY_SIZE)
+         count = MAX_DATA_LEN / ENTRY_SIZE;
       if (count > 0)
       {
-         filecount = count;
          files = (struct FileEntry *)AllocMem(sizeof(struct FileEntry) * count, MEMF_CLEAR);
+         if (files == NULL)
+         {
+            PutStr("AllocMem files failed\n");
+            return -1;
+         }
+         filecount = count;
       }
    }
    return count;

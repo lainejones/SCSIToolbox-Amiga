@@ -58,7 +58,7 @@
 
 #define ID_SHARED_DISK 0x53484152UL   /* 'SHAR' */
 
-__attribute__((used)) static const char ver[] = "$VER: sharedfs 1.8.2 (2.10.2026)";
+__attribute__((used)) static const char ver[] = "$VER: sharedfs 1.8.3 (28.10.2026)";
 
 /* With -nostartfiles we provide the library bases ourselves. */
 struct ExecBase *SysBase = NULL;
@@ -80,6 +80,7 @@ static char gBaseDir[80];
 static char gCurAbs[80];
 static char gListedDir[64];
 static int gListedValid = 0;
+static int gUploadOpen = 0;           /* firmware holds ONE upload at a time */
 
 /* A lock = a FileLock plus our per-object bookkeeping (fl_ must be first). */
 struct MyLock
@@ -560,6 +561,7 @@ static void doFindInput(struct DosPacket *pkt)
    struct MyFH *mfh;
    LONG r;
 
+   Toolbox_Drop_Cache();                           /* file may have changed on the card */
    if ((err = resolvePath(base, pkt->dp_Arg3, dir, leaf)) != 0)
    {
       pkt->dp_Res1 = DOSFALSE;
@@ -678,16 +680,26 @@ static void doSeek(struct DosPacket *pkt)
 static void doEnd(struct DosPacket *pkt)
 {
    struct MyFH *mfh = (struct MyFH *)pkt->dp_Arg1;
+   LONG failed = 0;
    if (mfh)
    {
       if (mfh->isWrite)                            /* finish the upload */
       {
-         if (mfh->wbuflen > 0)
-            Toolbox_Send_Block(mfh->wblock, mfh->wbuf, (int)mfh->wbuflen);
-         Toolbox_Send_End();
+         if (mfh->wbuflen > 0 &&
+             Toolbox_Send_Block(mfh->wblock, mfh->wbuf, (int)mfh->wbuflen) != 0)
+            failed = 1;
+         if (Toolbox_Send_End() != 0)
+            failed = 1;
+         gUploadOpen = 0;
          gListedValid = 0;                         /* new file appears now */
       }
       FreeVec(mfh);
+   }
+   if (failed)                                     /* tail block/close lost */
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_DISK_FULL;
+      return;
    }
    pkt->dp_Res1 = DOSTRUE;
    pkt->dp_Res2 = 0;
@@ -730,18 +742,28 @@ static void doFindOutput(struct DosPacket *pkt)
       return;
    }
 
+   if (gUploadOpen)                                /* a second PREP would silently
+                                                      replace the firmware's open
+                                                      upload and truncate the first */
+   {
+      pkt->dp_Res1 = DOSFALSE;
+      pkt->dp_Res2 = ERROR_OBJECT_IN_USE;
+      return;
+   }
    if (Toolbox_Send_Prep(leaf) != 0)              /* opens/creates on the SD card */
    {
       pkt->dp_Res1 = DOSFALSE;
       pkt->dp_Res2 = ERROR_OBJECT_IN_USE;
       return;
    }
+   gUploadOpen = 1;
    gListedValid = 0;                               /* dir listing now stale */
 
    mfh = AllocVec(sizeof(struct MyFH), MEMF_CLEAR | MEMF_PUBLIC);
    if (!mfh)
    {
       Toolbox_Send_End();                          /* close the prepared file */
+      gUploadOpen = 0;
       pkt->dp_Res1 = DOSFALSE;
       pkt->dp_Res2 = ERROR_NO_FREE_STORE;
       return;
@@ -820,6 +842,7 @@ LONG handlerMain(void)
 
    SysBase = *(struct ExecBase **)4L;
    gProc = (struct Process *)FindTask(NULL);
+   { const char * volatile keepver = ver; (void)keepver; } /* keep $VER through --gc-sections */
 
    WaitPort(&gProc->pr_MsgPort);
    msg = GetMsg(&gProc->pr_MsgPort);
@@ -843,6 +866,7 @@ LONG handlerMain(void)
 
    if (scsi_setup(devname, (int)gUnit) != 0)
    {
+      scsi_cleanup();                  /* port/IORequest/device from a partial setup */
       pkt->dp_Res1 = DOSFALSE;
       pkt->dp_Res2 = ERROR_DEVICE_NOT_MOUNTED;
       goto reply_and_exit;
@@ -950,6 +974,9 @@ LONG handlerMain(void)
          PutMsg(rp, msg);
       }
    }
+
+   dn->dn_Task = NULL;                  /* else the next SHARED: reference sends a
+                                           packet to this soon-dead port */
 
    if (gVol)                            /* remove the volume node on unmount */
    {

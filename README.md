@@ -191,6 +191,17 @@ repository.
 
 *From 1.7 on, every tool carries the suite version.*
 
+* 1.8.3 — audit fixes. SDTransfer no longer spins at 100% CPU while idle
+  (`Wait()` was outside the event loop) and no longer downloads when the Save
+  requester is cancelled. The CLI gets the same CloseDevice-after-failed-open
+  guard as the GUIs (wrong `UNIT=` on ExpXDS.device crashed). `sharedfs`:
+  refuses a second simultaneous upload (the firmware holds one; the first file
+  was silently truncated), reports a failed final block/close instead of
+  success, frees the SCSI port/IORequest on a failed mount, clears `dn_Task` on
+  unmount, and caches the last 4 KB GET_FILE page so small sequential reads
+  (LoadSeg, `Type`) stop costing a SCSI transfer each. Listings are clamped to
+  what fits the 4 KB buffer and always terminated. `sharedfs` linked with
+  `--gc-sections` (about 1.6 KB smaller).
 * 1.8.2 — `sharedfs`, CDChanger and SDTransfer work below AmigaOS 3.2 again:
   listing names were copied with utility.library `Strncpy` (V47 / OS 3.2 only),
   which crashed 3.1-3.9 on any `SHARED:` listing or GUI file list; now a plain

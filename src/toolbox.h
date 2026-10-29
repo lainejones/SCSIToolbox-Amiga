@@ -74,6 +74,7 @@ LONG Toolbox_Send_Block(ULONG block, const UBYTE *data, int len);
 LONG Toolbox_Send_End(void);
 LONG Toolbox_Send_File(const char *remotename, const char *source, void (*callback)(LONG));
 LONG Toolbox_Get_Bytes(int index, ULONG offset, UBYTE *buf, ULONG len);
+void Toolbox_Drop_Cache(void);   /* forget Get_Bytes' cached page */
 LONG Toolbox_Eject(void);
 /* Working directory (needs CAP_SET_WORKING_DIR; firmware v2026.04.27+) */
 LONG Toolbox_Set_Working_Dir(const char *path);
