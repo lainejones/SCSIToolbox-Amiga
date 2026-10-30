@@ -40,10 +40,12 @@ ignores them.
 Bounded by the Toolbox firmware protocol: **list / read / create** are supported;
 **delete, rename and makedir are not** (no such firmware commands — they fail
 cleanly). Protection bits/comments/dates are accepted and discarded, so `Copy` works.
-On **ZuluSCSI**, writing over an existing file is refused ("object already
-exists"): its firmware does not truncate the old file, so a shorter upload would
-keep the old tail. Remove or rename the file on the SD card first. BlueSCSI
-truncates, so overwriting works there.
+Writing over an existing file on a **ZuluSCSI** needs firmware **v2026.10.30 or
+later**: older ZuluSCSI firmware does not truncate the old file, so a shorter
+upload keeps the old tail
+([ZuluSCSI-firmware#1013](https://github.com/ZuluSCSI/ZuluSCSI-firmware/issues/1013)).
+On older firmware, update it or remove the file on the SD card first. BlueSCSI
+truncates, so overwriting works there with any firmware.
 
 ### SD Transfer
 File browser for the SD card. Descend into folders and back up by **double-click**
@@ -195,6 +197,13 @@ repository.
 
 *From 1.7 on, every tool carries the suite version.*
 
+* 1.9.1 — **Overwriting a file on a ZuluSCSI works again.** ZuluSCSI
+  firmware v2026.10.30 truncates a file that a Toolbox upload replaces
+  ([ZuluSCSI-firmware#1014](https://github.com/ZuluSCSI/ZuluSCSI-firmware/pull/1014)),
+  so `SHARED:` and the CLI `SEND` no longer refuse to overwrite on ZuluSCSI.
+  On older ZuluSCSI firmware a shorter upload still keeps the old file's
+  tail: update the firmware, or remove the file on the SD card first. The
+  firmware version cannot be read over SCSI, so the tools cannot check it.
 * 1.9 — **CDChanger and SDTransfer run on AmigaOS 3.1 (and 2.04+)**: the
   ReAction interface is replaced by GadTools, shared by both tools
   (`src/gtui.c`). Same layout and behaviour: logo, device line, list,

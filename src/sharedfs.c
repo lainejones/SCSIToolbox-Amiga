@@ -58,7 +58,7 @@
 
 #define ID_SHARED_DISK 0x53484152UL   /* 'SHAR' */
 
-__attribute__((used)) static const char ver[] = "$VER: sharedfs 1.9 (28.10.2026)";
+__attribute__((used)) static const char ver[] = "$VER: sharedfs 1.9.1 (30.10.2026)";
 
 /* With -nostartfiles we provide the library bases ourselves. */
 struct ExecBase *SysBase = NULL;
@@ -738,16 +738,6 @@ static void doFindOutput(struct DosPacket *pkt)
    {
       pkt->dp_Res1 = DOSFALSE;
       pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
-      return;
-   }
-   if (r == 1 && scsi_isZuluSCSI)                  /* ZuluSCSI firmware opens an
-                                                      existing file without
-                                                      truncating it: a shorter
-                                                      upload would keep the old
-                                                      tail. BlueSCSI truncates. */
-   {
-      pkt->dp_Res1 = DOSFALSE;
-      pkt->dp_Res2 = ERROR_OBJECT_EXISTS;
       return;
    }
 

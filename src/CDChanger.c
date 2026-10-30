@@ -35,7 +35,7 @@
 #include "toolbox.h"
 #include "gtui.h"
 
-__attribute__((used)) static const char ver[] = "$VER: CDChanger 1.9 (28.10.2026)";
+__attribute__((used)) static const char ver[] = "$VER: CDChanger 1.9.1 (30.10.2026)";
 
 /* Marker stored instead of an image name when the tray was ejected */
 #define EJECTED_MARKER "<EJECTED>"

@@ -62,7 +62,7 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.9 (28.10.2026)";
+__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.9.1 (30.10.2026)";
 
 /* Last-CD state shared with CDChanger (see SaveLastCD there) */
 #define LASTCD_ENV     "ENV:CDChanger.lastcd"
@@ -1035,23 +1035,6 @@ int Toolbox_PutFileByName(char *destination, char *source)
    BPTR fh;
    ULONG total = 0;
    char size_text[32];
-
-   /* ZuluSCSI firmware opens an existing file without truncating it, so a
-    * shorter upload would keep the old tail: refuse instead. BlueSCSI truncates. */
-   if (scsi_isZuluSCSI && Toolbox_List_Files(0) == 0)
-   {
-      int f;
-      for (f = 0; f < filecount; f++)
-      {
-         if (files[f].Type == 1 && Stricmp((STRPTR)files[f].Name, (STRPTR)destination) == 0)
-         {
-            Printf("'%s' already exists in the shared folder; ZuluSCSI cannot overwrite\n"
-                   "files (it would keep the old tail). Remove it on the SD card first.\n",
-                   (ULONG)destination);
-            return 0;
-         }
-      }
-   }
 
    /* Open the local source FIRST: don't PREP (which creates the file on the SD
     * card) until we know we can read what we're meant to upload. */
