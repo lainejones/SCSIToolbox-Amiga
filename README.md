@@ -53,16 +53,80 @@ File browser for the SD card. Descend into folders and back up by **double-click
 so the whole card is reachable, not just the shared folder. Downloads use an ASL
 save requester with a progress gauge.
 
+Menus (right mouse button):
+
+| Menu | Item | Key |
+|------|------|-----|
+| Project | About... | |
+| | Quit | Amiga-Q |
+| Transfer | Open / Download... (the selected folder or file) | Amiga-O |
+| | Upload... (a file into the folder shown, under its own name) | Amiga-U |
+| | Parent folder (working-directory firmware only) | Amiga-P |
+| | Refresh | Amiga-R |
+| Settings | Device... / Drawers... | |
+| | Snapshot window / Unsnapshot window | |
+
+**Upload** sends one file into the folder the window shows. The SD card takes
+names of up to 32 characters. On BlueSCSI an existing file of the same name is
+replaced after you confirm; ZuluSCSI cannot write over a file (it would keep the
+old tail), so there SDTransfer refuses and you remove the old file first.
+
+Settings > **Drawers**: the drawer the Save requester (Download to) and the
+Upload requester (Upload from) start in (empty = the program's drawer), and
+whether the requesters remember the last drawer you used (on by default; that
+goes to `ENV:` only, like Use).
+
 ![SD Transfer browsing the SD card root on a real A500](SDTransfer.png) ![SD Transfer on a ZuluSCSI device, real A1200](SDTransfer_ZuluSCSI.png)
 
 ### CD Changer
-Swap between CD ISO images on the SD card on the fly.
+Swap between CD ISO images on the SD card on the fly: pick an image and press
+Select (or `S`); Eject (`E`) empties the tray.
+
+Menus (right mouse button):
+
+| Menu | Item | Key |
+|------|------|-----|
+| Project | About... | |
+| | Quit | Amiga-Q |
+| CD | Set CD (the selected image) | Amiga-S |
+| | Eject | Amiga-E |
+| | Refresh list | Amiga-R |
+| Settings | Device... | |
+| | Snapshot window / Unsnapshot window | |
 
 ![CD Changer on a real A500](CDChanger.png) ![CD Changer on a ZuluSCSI device, real A1200](CDChanger_ZuluSCSI.png)
 
 *(Screenshots captured on real hardware — Amiga 500 + GVP A530 + BlueSCSI, and
 Amiga 1200 + DataFlyer SCSI+ + ZuluSCSI. The BlueSCSI/ZuluSCSI logo is picked
 automatically from the detected device.)*
+
+### Settings (CD Changer and SD Transfer)
+
+Each settings page has **Save** (kept: `ENV:` and `ENVARC:`), **Use** (`ENV:` only,
+until the next reboot), **Defaults** and **Cancel**. Settings > **Device** switches
+to another SCSI device/unit straight away (and back to the old one if the new one
+does not answer); its Defaults are the icon's Tool Types.
+
+The settings live in `ENV:CDChanger.prefs` and `ENV:SDTransfer.prefs`, plain
+`KEY=value` lines:
+
+| Key | Program | Meaning |
+|-----|---------|---------|
+| `DEVICE`, `UNIT` | both | the SCSI device and unit (only once set in Settings > Device) |
+| `WINDOW=x,y,w,h` | both | the window's place and size (Settings > Snapshot window) |
+| `DOWNLOADDIR`, `UPLOADDIR` | SDTransfer | the drawers the requesters start in |
+| `REMEMBERDIRS=YES/NO` | SDTransfer | remember the last drawers used |
+
+Which one wins, lowest first: the icon's Tool Types (`DEVICE=`, `UNIT=`), then the
+settings file, then `DEVICE=`/`UNIT=` given on the command line. Setting the
+device back to the Tool Types values (Defaults, then Save) takes `DEVICE`/`UNIT`
+out of the file again, so the icon is in charge. Unsnapshot window returns to
+the default place and size at the next start.
+
+The windows fit a 640x200 NTSC screen with Topaz 8. When the window is too low
+for the logo and a useful list (a 200-line screen), the logo is left out and the
+line under it names the device instead; make the window taller to bring it back.
+If the screen font is too big for even the smallest window, Topaz 8 is used.
 
 ### BlueSCSIToolbox (CLI)
 Command-line access:
@@ -139,8 +203,8 @@ The release archive holds one drawer, `SCSIToolbox` (with its drawer icon):
 A `release-all` archive has the four programs (with their icons) in one drawer
 per CPU (`68000`, `68020`, `68040`, `68060`); copy the set that matches your CPU.
 
-Set the SCSI device and unit in each GUI icon's Tool Types (`DEVICE=`, `UNIT=`)
-or on the command line.
+Set the SCSI device and unit in each GUI icon's Tool Types (`DEVICE=`, `UNIT=`),
+on the command line, or in the program's Settings > Device.
 
 Use the `.lha` archive if you can. A `.zip` loses AmigaDOS protection bits, so
 after unpacking a `.zip` make the programs executable, e.g.
@@ -220,6 +284,15 @@ repository.
 
 *From 1.7 on, every tool carries the suite version.*
 
+* 1.9.3 — **menus and settings for
+  CDChanger and SDTransfer**: right-mouse-button menus (About, Quit, the
+  program's actions with Amiga-key shortcuts), settings pages with
+  Save / Use / Defaults / Cancel kept in `ENV:CDChanger.prefs` /
+  `ENV:SDTransfer.prefs`, Snapshot / Unsnapshot window. SDTransfer can
+  **upload** a file into the folder shown, refresh, and go to the parent
+  folder from the menu; Settings > Drawers sets where its requesters start.
+  The windows now open below the screen's title bar and fit a 640x200 NTSC
+  screen with Topaz 8 (the logo is left out when the window is too low for it).
 * 1.9.2 — **an installer**: double-click `Install_SCSIToolbox` in the
   unpacked drawer (see [Installing](#installing)). The drawers get your
   Workbench's own drawer icon. The tools are otherwise the same as 1.9.1.

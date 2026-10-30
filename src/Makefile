@@ -1,4 +1,4 @@
-OBJS	 = BlueSCSIToolbox.o CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o gtui.o SDTransfer.o sharedfs.o hstart.o
+OBJS	 = BlueSCSIToolbox.o CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o gtui.o amigui.o SDTransfer.o sharedfs.o hstart.o
 
 DISTDIR  = ../dist
 
@@ -60,16 +60,16 @@ BlueSCSIToolbox: BlueSCSIToolbox.o
 BlueSCSIToolbox.o: BlueSCSIToolbox.c
 	$(CC) $(CFLAGS) -c BlueSCSIToolbox.c
 
-CDChanger: CDChanger.o gtui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
-	$(CC) CDChanger.o gtui.o -o CDChanger $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+CDChanger: CDChanger.o gtui.o amigui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+	$(CC) CDChanger.o gtui.o amigui.o -o CDChanger $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
 
-CDChanger.o: CDChanger.c toolbox.h gtui.h
+CDChanger.o: CDChanger.c toolbox.h gtui.h amigui.h
 	$(CC) $(CFLAGS) -c CDChanger.c
 
-SDTransfer: SDTransfer.o gtui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
-	$(CC) SDTransfer.o gtui.o -o SDTransfer $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+SDTransfer: SDTransfer.o gtui.o amigui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+	$(CC) SDTransfer.o gtui.o amigui.o -o SDTransfer $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
 
-SDTransfer.o: SDTransfer.c toolbox.h gtui.h
+SDTransfer.o: SDTransfer.c toolbox.h gtui.h amigui.h
 	$(CC) $(CFLAGS) -c SDTransfer.c
 
 scsi.o: scsi.c toolbox.h
@@ -78,8 +78,13 @@ scsi.o: scsi.c toolbox.h
 common.o: common.c toolbox.h
 	$(CC) $(CFLAGS) -c common.c
 
-gtui.o: gtui.c gtui.h
+gtui.o: gtui.c gtui.h amigui.h
 	$(CC) $(CFLAGS) -c gtui.c
+
+# About box, settings pages, ENV:/ENVARC: settings files (shared with our
+# other GUI programs; copied from C:\projects\tools\amigui)
+amigui.o: amigui.c amigui.h
+	$(CC) $(CFLAGS) -c amigui.c
 
 BlueSCSIlogo.o: BlueSCSIlogo.c
 	$(CC) $(CFLAGS) -c BlueSCSIlogo.c

@@ -22,6 +22,9 @@ mountable shared-folder filesystem handler and an upload path.
 | `src/toolbox.h`         | modified | declarations, capability flags, working-dir constants |
 | `src/BlueSCSIToolbox.c` | modified | fix the `SEND` upload path; `SETDIR/GETDIR/RESETDIR`, `INFO`, `LISTDEVICES` |
 | `src/SDTransfer.c`      | modified | subfolder navigation (double-click, to SD root), persistent listbrowser node text |
+| `src/CDChanger.c`       | modified | Eject + last-CD persistence; GadTools UI; menus, Device settings page |
+| `src/gtui.c`, `src/gtui.h` | **new** | shared GadTools window for CDChanger/SDTransfer: menus, snapshot, settings pages |
+| `src/amigui.c`, `src/amigui.h` | **new** | About box, settings-page frame, ENV:/ENVARC: settings files (Laine Jones's shared GUI helpers) |
 | `src/sharedfs.c`        | **new**  | AmigaDOS filesystem handler for the shared folder (`SHARED:`), hierarchical with working-dir firmware |
 | `src/hstart.s`          | **new**  | handler entry stub (hunk offset 0 → handlerMain) |
 | `src/SHARED.mountlist`, `src/SHARED-GVP.mountlist` | **new** | mountlists for `SHARED:` |

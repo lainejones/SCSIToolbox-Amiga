@@ -9,6 +9,18 @@
  * ReinsertAfterEject=0 in bluescsi.ini for empty-tray-by-default behaviour.
  * Modified 2026-10-28: GadTools user interface (gtui.c) instead of ReAction,
  * so it runs on AmigaOS 2.04/3.0/3.1 without ClassAct/ReAction installed.
+ * Modified 2026-10-30: right-mouse-button menus (Project / CD / Settings),
+ * Refresh list, a Device settings page kept in ENV:CDChanger.prefs, and
+ * Snapshot / Unsnapshot window.
+ *
+ * Settings precedence (lowest first):
+ *   1. the icon's Tool Types DEVICE= and UNIT= (Workbench start)
+ *   2. ENV:CDChanger.prefs, else ENVARC:CDChanger.prefs - plain KEY=value
+ *      lines: DEVICE, UNIT, WINDOW=x,y,w,h. DEVICE/UNIT are only in the file
+ *      once they were set in Settings > Device; setting them back to the
+ *      Tool Types values (the Defaults button) takes them out again.
+ *   3. DEVICE= and UNIT= on the command line (Shell start) beat the file.
+ * Save writes ENV: and ENVARC: (kept), Use writes ENV: only (until reboot).
  *
  * This program is free software: you can redistribute and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,8 +46,12 @@
 #include <clib/alib_protos.h>
 #include "toolbox.h"
 #include "gtui.h"
+#include "amigui.h"
 
-__attribute__((used)) static const char ver[] = "$VER: CDChanger 1.9.2 (30.10.2026)";
+#define VERSION   "1.9.2"
+#define PREFSFILE "CDChanger.prefs"
+
+__attribute__((used)) static const char ver[] = "$VER: CDChanger " VERSION " (30.10.2026)";
 
 /* Marker stored instead of an image name when the tray was ejected */
 #define EJECTED_MARKER "<EJECTED>"
@@ -46,6 +62,21 @@ struct IntuitionBase *IntuitionBase = NULL;
 
 static char scsi_dev[256];
 static LONG scsi_unit = -1;
+static BOOL gDevOK = FALSE;             /* a device is open (scsi_setup worked) */
+static BOOL gFromCLI = FALSE;
+
+/* DEVICE/UNIT from the Tool Types or the command line: the Defaults of
+   Settings > Device */
+static char gArgDev[256];
+static LONG gArgUnit = -1;
+
+/* The settings (see the precedence at the top) */
+static struct
+{
+   char dev[256];                       /* "" = not in the file */
+   LONG unit;                           /* -1 = not in the file */
+   WORD wx, wy, ww, wh;                 /* snapshot; ww 0 = none */
+} gP;
 
 static char *appname = "CD Changer";
 
@@ -63,19 +94,52 @@ static struct CdNode gNodes[MAX_NODES];
 static struct List gList;
 
 static struct GtUI ui;
+static char gInfo[80], gInfoAlt[96];
 
 extern UWORD bluescsi_logo_data[];
 extern UWORD zuluscsi_logo_data[];
 
+/* ---- menus ---------------------------------------------------------------- */
+
+enum
+{
+   MN_ABOUT = 1, MN_QUIT,
+   MN_SETCD, MN_EJECT, MN_REFRESH,
+   MN_SET_DEVICE, MN_SNAPSHOT, MN_UNSNAPSHOT
+};
+
+static struct NewMenu menuDef[] =
+{
+   {NM_TITLE, (STRPTR)"Project",           NULL, 0, 0, NULL},
+   {NM_ITEM,  (STRPTR)"About...",          NULL, 0, 0, (APTR)MN_ABOUT},
+   {NM_ITEM,  NM_BARLABEL,                 NULL, 0, 0, NULL},
+   {NM_ITEM,  (STRPTR)"Quit",      (STRPTR)"Q",  0, 0, (APTR)MN_QUIT},
+   {NM_TITLE, (STRPTR)"CD",                NULL, 0, 0, NULL},
+   {NM_ITEM,  (STRPTR)"Set CD",    (STRPTR)"S",  0, 0, (APTR)MN_SETCD},
+   {NM_ITEM,  (STRPTR)"Eject",     (STRPTR)"E",  0, 0, (APTR)MN_EJECT},
+   {NM_ITEM,  NM_BARLABEL,                 NULL, 0, 0, NULL},
+   {NM_ITEM,  (STRPTR)"Refresh list", (STRPTR)"R", 0, 0, (APTR)MN_REFRESH},
+   {NM_TITLE, (STRPTR)"Settings",          NULL, 0, 0, NULL},
+   {NM_ITEM,  (STRPTR)"Device...",         NULL, 0, 0, (APTR)MN_SET_DEVICE},
+   {NM_ITEM,  NM_BARLABEL,                 NULL, 0, 0, NULL},
+   {NM_ITEM,  (STRPTR)"Snapshot window",   NULL, 0, 0, (APTR)MN_SNAPSHOT},
+   {NM_ITEM,  (STRPTR)"Unsnapshot window", NULL, 0, 0, (APTR)MN_UNSNAPSHOT},
+   {NM_END,   NULL,                        NULL, 0, 0, NULL}
+};
+
 static void DiskChange(void);
 static void SaveLastCD(const char *name);
+static void BuildList(void);
+static void ShowList(void);
+static void SetHeader(void);
+static void SetCD(void);
+static void Eject(void);
+static void PrefsLine(const char *key, char *val);
+static BOOL PrefsWrite(BOOL keep);
+static void DevicePage(void);
 
 int main(int argc, char **argv)
 {
-   struct FileEntry *files;
-   char info[80];
-   int count = 0;
-
    /* Suppress DOS volume requesters from our own process before any DOS activity. */
    ((struct Process *)FindTask(NULL))->pr_WindowPtr = (APTR)-1L;
 
@@ -92,7 +156,18 @@ int main(int argc, char **argv)
       goto exit;
    }
 
-   if (!gtui_GetArgs(argc, argv, appname, scsi_dev, sizeof(scsi_dev), &scsi_unit))
+   /* Tool Types / command line, then the settings file (see the top) */
+   if (!gtui_GetArgs(argc, argv, gArgDev, sizeof(gArgDev), &gArgUnit, &gFromCLI))
+      goto exit;
+   gP.unit = -1;
+   gtui_PrefsRead(PREFSFILE, PrefsLine);
+   strcpy(scsi_dev, gArgDev);
+   scsi_unit = gArgUnit;
+   if (gP.dev[0] && !(gFromCLI && gArgDev[0]))
+      strcpy(scsi_dev, gP.dev);
+   if (gP.unit >= 0 && !(gFromCLI && gArgUnit >= 0))
+      scsi_unit = gP.unit;
+   if (!gtui_CheckDevice(appname, PREFSFILE, gFromCLI, scsi_dev, scsi_unit))
       goto exit;
 
    if (scsi_setup(scsi_dev, scsi_unit) != 0)
@@ -102,8 +177,112 @@ int main(int argc, char **argv)
       MessageBox(appname, msg);
       goto exit;
    }
+   gDevOK = TRUE;
+
+   BuildList();
+
+   ui.title = appname;
+   ui.labels = &gList;
+   ui.nButtons = 2;
+   ui.buttonText[0] = "_Select";
+   ui.buttonText[1] = "_Eject";
+   ui.hasStatus = FALSE;
+   ui.menuDef = menuDef;
+   ui.snapX = gP.wx;
+   ui.snapY = gP.wy;
+   ui.snapW = gP.ww;
+   ui.snapH = gP.wh;
+   SetHeader();
+
+   if (!gtui_Open(&ui, 250, 250))
+   {
+      MessageBox(appname, "Could not open window");
+      goto exit;
+   }
+
+   for (;;)
+   {
+      LONG arg = 0;
+      int ev = gtui_Wait(&ui, &arg);
+
+      if (ev == GTUI_QUIT)
+         break;
+      if (ev == GTUI_BUTTON)                     /* a list click only selects */
+      {
+         if (arg == 0)
+            SetCD();
+         else
+            Eject();
+      }
+      else if (ev == GTUI_MENU)
+      {
+         if (arg == MN_QUIT)
+            break;
+         switch (arg)
+         {
+            case MN_ABOUT:
+               amg_about(ui.win, "CDChanger", VERSION,
+                         "Switches the CD image a BlueSCSI or ZuluSCSI emulates.\n"
+                         "Part of SCSIToolbox-Amiga. Licence: GPL-3.0-or-later.");
+               break;
+            case MN_SETCD:      SetCD(); break;
+            case MN_EJECT:      Eject(); break;
+            case MN_REFRESH:    ShowList(); break;
+            case MN_SET_DEVICE: DevicePage(); break;
+            case MN_SNAPSHOT:   /* this place and size from now on (saved) */
+               gP.wx = ui.win->LeftEdge;
+               gP.wy = ui.win->TopEdge;
+               gP.ww = ui.win->Width;
+               gP.wh = ui.win->Height;
+               if (!PrefsWrite(TRUE))
+                  MessageBox(appname, "Could not write ENV:" PREFSFILE);
+               break;
+            case MN_UNSNAPSHOT: /* the default place and size at the next start */
+               gP.ww = 0;
+               if (!PrefsWrite(TRUE))
+                  MessageBox(appname, "Could not write ENV:" PREFSFILE);
+               break;
+         }
+      }
+   }
+
+exit:
+   gtui_Close(&ui);
+   scsi_cleanup();
+   if (UtilityBase) CloseLibrary(UtilityBase);
+   if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
+   return 0;
+}
+
+/* The logo and the line under it for the open device */
+static void SetHeader(void)
+{
+   const char *kind = scsi_isZuluSCSI ? "ZuluSCSI" : "BlueSCSI";
+
+   if (gDevOK)
+   {
+      sprintf(gInfo, "%.40s, unit %ld", scsi_dev, scsi_unit);
+      sprintf(gInfoAlt, "%s: %.40s, unit %ld", kind, scsi_dev, scsi_unit);
+   }
+   else
+   {
+      strcpy(gInfo, "No device - see Settings");
+      strcpy(gInfoAlt, gInfo);
+   }
+   gtui_SetHeader(&ui, scsi_isZuluSCSI ? zuluscsi_logo_data : bluescsi_logo_data,
+                  gInfo, gInfoAlt);
+}
+
+/* The device's CD images, in its own order. The list must be detached from
+   the gadget (or the window not open yet) while this runs. */
+static void BuildList(void)
+{
+   struct FileEntry *files;
+   int count = 0;
 
    NewList(&gList);
+   if (!gDevOK)
+      return;
    files = Toolbox_List_Files(1);
    if (files)
    {
@@ -123,68 +302,50 @@ int main(int argc, char **argv)
          AddTail(&gList, &n->node);
       }
    }
-   else if (argc > 0)
+   else if (gFromCLI && !ui.win)
    {
       Printf("no files\n");
    }
+}
 
-   sprintf(info, "%.40s, unit %ld", scsi_dev, scsi_unit);
+/* Re-read the images into the window */
+static void ShowList(void)
+{
+   gtui_DetachList(&ui);
+   BuildList();
+   gtui_AttachList(&ui, &gList, -1);
+}
 
-   ui.title = appname;
-   ui.info = info;
-   ui.logoData = scsi_isZuluSCSI ? zuluscsi_logo_data : bluescsi_logo_data;
-   ui.labels = &gList;
-   ui.nButtons = 2;
-   ui.buttonText[0] = "_Select";
-   ui.buttonText[1] = "_Eject";
-   ui.hasStatus = FALSE;
+static void SetCD(void)
+{
+   struct CdNode *n = (struct CdNode *)gtui_NodeAt(&gList, ui.selected);
 
-   if (!gtui_Open(&ui, 250, 250))
+   if (!n || !gDevOK)
    {
-      MessageBox(appname, "Could not open window");
-      goto exit;
+      DisplayBeep(ui.scr);
+      return;
    }
+   Toolbox_Set_Next_CD(n->index);
+   DiskChange();
+   SaveLastCD(n->name);
+}
 
-   for (;;)
+static void Eject(void)
+{
+   if (!gDevOK)
    {
-      LONG arg = 0;
-      int ev = gtui_Wait(&ui, &arg);
-
-      if (ev == GTUI_QUIT)
-         break;
-      if (ev != GTUI_BUTTON)
-         continue;                               /* a click only selects */
-
-      if (arg == 0)                              /* Select */
-      {
-         struct CdNode *n = (struct CdNode *)gtui_NodeAt(&gList, ui.selected);
-         if (n)
-         {
-            Toolbox_Set_Next_CD(n->index);
-            DiskChange();
-            SaveLastCD(n->name);
-         }
-      }
-      else                                       /* Eject */
-      {
-         if (Toolbox_Eject() == 0)
-         {
-            DiskChange();
-            SaveLastCD(EJECTED_MARKER);
-         }
-         else
-         {
-            MessageBox(appname, "Eject failed (SCSI error)");
-         }
-      }
+      DisplayBeep(ui.scr);
+      return;
    }
-
-exit:
-   gtui_Close(&ui);
-   scsi_cleanup();
-   if (UtilityBase) CloseLibrary(UtilityBase);
-   if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
-   return 0;
+   if (Toolbox_Eject() == 0)
+   {
+      DiskChange();
+      SaveLastCD(EJECTED_MARKER);
+   }
+   else
+   {
+      MessageBox(appname, "Eject failed (SCSI error)");
+   }
 }
 
 /* Copy a BCPL string to a C string */
@@ -250,4 +411,119 @@ static void SaveLastCD(const char *name)
          Close(fh);
       }
    }
+}
+
+/* ---- settings ------------------------------------------------------------- */
+
+static void PrefsLine(const char *key, char *val)
+{
+   LONG n;
+
+   if (!strcmp(key, "DEVICE"))
+   {
+      strncpy(gP.dev, val, sizeof(gP.dev) - 1);
+      gP.dev[sizeof(gP.dev) - 1] = '\0';
+   }
+   else if (!strcmp(key, "UNIT"))
+   {
+      if (StrToLong((STRPTR)val, &n) > 0 && n >= 0)
+         gP.unit = n;
+   }
+   else if (!strcmp(key, "WINDOW"))
+   {
+      if (!gtui_ParseBox(val, &gP.wx, &gP.wy, &gP.ww, &gP.wh))
+         gP.ww = 0;
+   }
+}
+
+static BOOL PrefsWrite(BOOL keep)
+{
+   static char buf[400];
+   char *p = buf;
+
+   buf[0] = '\0';
+   if (gP.dev[0])
+      p += sprintf(p, "DEVICE=%s\n", gP.dev);
+   if (gP.unit >= 0)
+      p += sprintf(p, "UNIT=%ld\n", gP.unit);
+   if (gP.ww > 0)
+      p += sprintf(p, "WINDOW=%ld,%ld,%ld,%ld\n",
+                   (LONG)gP.wx, (LONG)gP.wy, (LONG)gP.ww, (LONG)gP.wh);
+   return (BOOL)(amg_env_write(PREFSFILE, buf, (ULONG)(p - buf), keep) != 0);
+}
+
+/* Close the device and open dev/unit instead; back to the old one if that
+   fails. */
+static void SwitchDevice(const char *dev, LONG unit)
+{
+   char oldDev[256];
+   LONG oldUnit = scsi_unit;
+
+   if (gDevOK && !strcmp(dev, scsi_dev) && unit == scsi_unit)
+      return;
+   strcpy(oldDev, scsi_dev);
+
+   gtui_Busy(&ui, TRUE);
+   scsi_cleanup();
+   strcpy(scsi_dev, dev);
+   scsi_unit = unit;
+   gDevOK = (BOOL)(scsi_setup(scsi_dev, scsi_unit) == 0);
+   if (!gDevOK)
+   {
+      scsi_cleanup();
+      MessageBox(appname, "Could not use that device: back to the previous one.");
+      strcpy(scsi_dev, oldDev);
+      scsi_unit = oldUnit;
+      gDevOK = (BOOL)(oldDev[0] && scsi_setup(scsi_dev, scsi_unit) == 0);
+      if (!gDevOK)
+         scsi_cleanup();
+   }
+   SetHeader();
+   ShowList();
+   gtui_Busy(&ui, FALSE);
+}
+
+static const struct GtField devFields[] =
+{
+   {"Device", GTF_STR, 255},
+   {"Unit",   GTF_INT, 3}
+};
+
+static void DevicePage(void)
+{
+   struct GtVals v, def;
+   int res;
+
+   memset(&v, 0, sizeof(v));
+   memset(&def, 0, sizeof(def));
+   strcpy(v.s[0], scsi_dev);
+   v.n[1] = scsi_unit;
+   strcpy(def.s[0], gArgDev);
+   def.n[1] = gArgUnit >= 0 ? gArgUnit : 0;
+
+   res = gtui_Page(&ui, "CDChanger: Device", devFields, 2,
+                   "Defaults = the icon's Tool Types", &v, &def);
+   if (res == AMG_CANCEL)
+      return;
+   if (!v.s[0][0] || v.n[1] < 0)
+   {
+      MessageBox(appname, "Give a device name and a unit number.");
+      return;
+   }
+
+   /* The same as the Tool Types: leave them in charge (not in the file) */
+   if (!strcmp(v.s[0], gArgDev) && v.n[1] == gArgUnit)
+   {
+      gP.dev[0] = '\0';
+      gP.unit = -1;
+   }
+   else
+   {
+      strncpy(gP.dev, v.s[0], sizeof(gP.dev) - 1);
+      gP.dev[sizeof(gP.dev) - 1] = '\0';
+      gP.unit = v.n[1];
+   }
+   if (!PrefsWrite(res == AMG_SAVE))
+      MessageBox(appname, "Could not write ENV:" PREFSFILE);
+   SwitchDevice(v.s[0], v.n[1]);
 }

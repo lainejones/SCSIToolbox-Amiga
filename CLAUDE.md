@@ -472,6 +472,22 @@ Resizing rebuilds all gadgets (`relayout`); `WindowLimits` keeps the logo
   A500 (OS 3.2.3, BlueSCSI) over NetHarness - navigation, double-click,
   download + Cancel, progress bar, resize, Esc, CDChanger list on unit 3.
 
+### Menus + settings (branch `feature/menus`, 2026-10-30)
+
+- `gtui` now also does: the menu strip (`ui.menuDef`, picks come back as
+  `GTUI_MENU` with the item's user data, multi-select via `NextSelect`),
+  snapshot place/size (`ui.snapX..snapH`), Topaz 8 fallback when the screen
+  font would not fit, the logo hidden when the window is too low for it plus
+  6 list rows (always on a 640x200 screen; `ui.infoAlt` then names the device),
+  `gtui_Page` settings pages (on `amigui.c`, copied from `C:\projects\tools\amigui`),
+  `gtui_PrefsRead` (KEY=value from ENV:, else ENVARC:).
+- Settings files `ENV:CDChanger.prefs` / `ENV:SDTransfer.prefs`; precedence
+  Tool Types < file < command line (in each program's header comment).
+- Settings > Device re-opens SCSI at run time: `scsi_cleanup()` now NULLs
+  its pointers so a second `scsi_setup()` is safe; `gDevOK` guards actions.
+- SDTransfer Upload uses `Toolbox_Send_File` (refuses an existing name on
+  ZuluSCSI, asks on BlueSCSI). Not yet run on hardware.
+
 ## ListBrowser Tag Reference (AmigaOS 3.2.3 ReAction) - historical, pre-1.9
 
 Compile with `-DNO_INLINE_STDARG` to force `AllocListBrowserNodeA` (TagItem array)

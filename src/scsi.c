@@ -5,6 +5,8 @@
  * Added the shared-folder upload primitives (Toolbox_Send_Prep/Block/End and
  * the Toolbox_Send_File wrapper) for use by the forthcoming SHARED: AmigaDOS
  * filesystem handler. UI-agnostic: errors are returned, not shown.
+ * Modified 2026-10-30: scsi_cleanup() NULLs what it frees, so the GUIs can
+ * switch to another device (Settings > Device) with a fresh scsi_setup().
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,6 +81,7 @@ static void numToStr(char *buf, ULONG n)
 /* Entries allocated for 'files' (+1 sentinel). Kept apart from filecount so
    filecount can shrink to what LIST actually returned. */
 static int filesAlloc = 0;
+static int gPageValid;          /* Toolbox_Get_Bytes' page cache, below */
 
 /* Setup the SCSI device */
 int scsi_setup(char *scsi_dev, int scsi_unit)
@@ -144,6 +147,9 @@ void scsi_cleanup()
    if (scsi_data) FreeMem(scsi_data, MAX_DATA_LEN);
    if (scsi_sense) FreeMem(scsi_sense, SENSE_LEN);
    if (scsi_cmd) FreeMem(scsi_cmd, sizeof(struct SCSICmd));
+   scsi_data = scsi_sense = NULL;
+   scsi_cmd = NULL;
+   gPageValid = 0;
 
    if (io_ptr)
    {
@@ -155,6 +161,9 @@ void scsi_cleanup()
       DeleteIORequest(io_ptr);
    }
    if (scsiPort) DeleteMsgPort(scsiPort);
+   /* NULL everything, so the GUIs can scsi_setup() another device afterwards */
+   io_ptr = NULL;
+   scsiPort = NULL;
 }
 
 /* One-page GET_FILE cache for Toolbox_Get_Bytes: AmigaDOS Read() is

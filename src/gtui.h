@@ -25,6 +25,8 @@
 #include <exec/lists.h>
 #include <intuition/intuition.h>
 #include <intuition/screens.h>
+#include <libraries/gadtools.h>
+#include <graphics/text.h>
 
 #define GTUI_MAXBUTTONS 2
 #define GTUI_STATUSLEN  160
@@ -39,7 +41,8 @@ enum
    GTUI_QUIT,       /* close gadget, Esc or Ctrl-C */
    GTUI_BUTTON,     /* *arg = button number (also its underscored key) */
    GTUI_SELECT,     /* *arg = list row clicked */
-   GTUI_OPEN        /* *arg = list row double-clicked */
+   GTUI_OPEN,       /* *arg = list row double-clicked */
+   GTUI_MENU        /* *arg = the menu item's user data (one per pick) */
 };
 
 struct GtUI
@@ -47,21 +50,30 @@ struct GtUI
    /* Filled in by the caller before gtui_Open() */
    char *title;
    char *info;                          /* line under the logo */
+   char *infoAlt;                       /* the same line when the logo is hidden
+                                           (too little height), or NULL = info */
    const UWORD *logoData;               /* logo bitplane (any memory), or NULL */
    struct List *labels;                 /* list rows: ln_Name is the text */
    int nButtons;
    char *buttonText[GTUI_MAXBUTTONS];   /* "_Select" style, '_' marks the key */
    BOOL hasStatus;                      /* text / progress bar at the bottom */
+   struct NewMenu *menuDef;             /* the menu strip, or NULL */
+   WORD snapX, snapY, snapW, snapH;     /* snapshot place + size; snapW 0 = none */
 
    /* Current state, readable by the caller */
    struct Window *win;
+   struct Screen *scr;
+   APTR vi;
+   struct TextAttr *ta;                 /* the font the window uses: the screen's,
+                                           or Topaz 8 when that one is too big */
    LONG selected;                       /* list row, -1 = none */
 
    /* Private */
-   struct Screen *scr;
-   APTR vi;
    struct DrawInfo *dri;
    struct Gadget *glist, *lv;
+   struct Menu *menu;
+   UWORD menuNext;                      /* the next pick of a multi-select */
+   struct TextFont *font;
    struct Image logo;
    UWORD *logoChip;
    UBYTE keys[GTUI_MAXBUTTONS];
@@ -69,6 +81,7 @@ struct GtUI
    ULONG lastSecs, lastMicros;
    char status[GTUI_STATUSLEN];
    LONG level;                          /* progress 0-100, -1 = text only */
+   BOOL showLogo;
    WORD logoX, logoY, logoW, logoH;
    WORD infoY;
    WORD statX, statY, statW, statH;
@@ -88,9 +101,54 @@ struct Node *gtui_NodeAt(struct List *list, LONG row);
 void gtui_SetStatus(struct GtUI *ui, const char *text, LONG level);
 void gtui_Busy(struct GtUI *ui, BOOL busy);
 
-/* DEVICE/UNIT from the command line or the icon's Tool Types.
-   Reports the problem itself and returns FALSE if either is missing. */
-BOOL gtui_GetArgs(int argc, char **argv, char *appname,
-                  char *dev, int devsize, LONG *unit);
+/* New logo (another device) and/or info lines: redraws the window. */
+void gtui_SetHeader(struct GtUI *ui, const UWORD *logoData, char *info, char *infoAlt);
+
+/* Enable or disable menu item 'item' of menu 'menu' (both from 0). */
+void gtui_MenuEnable(struct GtUI *ui, UWORD menu, UWORD item, BOOL on);
+
+/* DEVICE/UNIT from the command line (*fromCLI = TRUE) or the icon's Tool
+   Types. Either may be missing (dev "" / unit -1): the caller merges the
+   settings file and then checks. FALSE only when the command line is bad
+   (the problem is reported). */
+BOOL gtui_GetArgs(int argc, char **argv, char *dev, int devsize, LONG *unit,
+                  BOOL *fromCLI);
+
+/* TRUE if dev and unit are set; else reports what is missing (to the shell
+   or in a requester) and returns FALSE. */
+BOOL gtui_CheckDevice(char *appname, const char *prefsfile, BOOL fromCLI,
+                      const char *dev, LONG unit);
+
+/* ---- settings (gtuiprefs in gtui.c, built on amigui.c) ------------------- */
+
+/* Read ENV:<file> (else ENVARC:<file>) and call line() for each KEY=value
+   line (key upper-cased, value trimmed). FALSE if there is no file. */
+BOOL gtui_PrefsRead(const char *file, void (*line)(const char *key, char *val));
+
+/* Parse "x,y,w,h" (WINDOW=). TRUE if all four are there and w, h > 0. */
+BOOL gtui_ParseBox(const char *val, WORD *x, WORD *y, WORD *w, WORD *h);
+
+/* A settings page: labelled fields, a note line, Save / Use / [Defaults] /
+   Cancel. Returns AMG_SAVE / AMG_USE / AMG_CANCEL; unless cancelled the
+   edited values are in v. The main window is blocked while it is open. */
+enum { GTF_STR, GTF_INT, GTF_CHECK };
+#define GTF_MAX    3
+#define GTF_STRLEN 256
+
+struct GtField
+{
+   const char *label;
+   int kind;
+   int maxc;                            /* GTF_STR / GTF_INT: most characters */
+};
+
+struct GtVals
+{
+   char s[GTF_MAX][GTF_STRLEN];
+   LONG n[GTF_MAX];
+};
+
+int gtui_Page(struct GtUI *ui, const char *title, const struct GtField *f, int nf,
+              const char *note, struct GtVals *v, const struct GtVals *def);
 
 #endif
