@@ -109,17 +109,22 @@ clean:
 #   dist/SCSIToolbox/                BlueSCSIToolbox, CDChanger(.info),
 #                                    SDTransfer(.info), sharedfs,
 #                                    SHARED.mountlist, SHARED-GVP.mountlist,
-#                                    LICENSE.txt, README.md
+#                                    LICENSE.txt, README.md,
+#                                    Install_SCSIToolbox(.info)
+# SCSIToolbox.info is a plain drawer icon (makeicon_drawer32.py); the
+# installer swaps in the Workbench's own drawer icon once it has run.
 # release-all puts the programs in one drawer per CPU instead
-# (dist/SCSIToolbox/68000/ ... 68060/, each with its drawer icon).
+# (dist/SCSIToolbox/68000/ ... 68060/, each with its drawer icon); it has
+# no installer (Install_SCSIToolbox expects the flat release drawer).
 REL      = $(DISTDIR)/SCSIToolbox
 PROGS    = BlueSCSIToolbox CDChanger CDChanger.info SDTransfer SDTransfer.info sharedfs
 DOCS     = SHARED.mountlist SHARED-GVP.mountlist ../LICENSE.txt ../README.md
+INSTALL  = Install_SCSIToolbox Install_SCSIToolbox.info
 
 release: all
 	rm -rf $(REL) $(REL).info
 	mkdir -p $(REL)
-	cp $(PROGS) $(DOCS) $(REL)/
+	cp $(PROGS) $(DOCS) $(INSTALL) $(REL)/
 	cp SCSIToolbox.info $(REL).info
 
 # Build all CPU variants into dist/SCSIToolbox/<cpu>/ drawers

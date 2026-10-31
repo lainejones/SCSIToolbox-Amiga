@@ -1,0 +1,165 @@
+; -------------------------------------------------------------------------
+; SCSIToolbox - Installer script
+; Copies BlueSCSIToolbox, CDChanger and SDTransfer (with their icons), the
+; mountlists, the README and the licence into a drawer of your choice, and
+; sharedfs (the SHARED: handler) to L:. Run it again to update: icons that
+; are already there keep their Tool Types, mountlists that are already there
+; are kept.
+; -------------------------------------------------------------------------
+(set @app-name "SCSIToolbox")
+(complete 0)
+
+(if (or (not (exists "BlueSCSIToolbox")) (not (exists "sharedfs"))
+        (not (exists "CDChanger")) (not (exists "SDTransfer")))
+    (abort "Can't find the SCSIToolbox files next to this script.\n\n"
+           "Run the installer from the drawer it came in."))
+
+(message "SCSIToolbox 1.9.2 - tools for BlueSCSI and ZuluSCSI\n\n"
+         "CDChanger swaps CD images, SDTransfer browses the SD card and downloads "
+         "files, BlueSCSIToolbox does both from the Shell, and sharedfs mounts the "
+         "SD card's shared folder as the SHARED: volume.\n\n"
+         "On a ZuluSCSI, set EnableToolbox=1 under [SCSI] in zuluscsi.ini.")
+
+; ---- the questions first; nothing changes until the copying starts ----------
+(set target
+    (askdir (prompt "Where should the SCSIToolbox drawer go?")
+            (help "A drawer called SCSIToolbox is made here (or updated, if it is "
+                  "already there). It holds CDChanger, SDTransfer, BlueSCSIToolbox, "
+                  "the two SHARED: mountlists, the README and the licence.")
+            (default (if (exists "SYS:Tools" (noreq)) "SYS:Tools" "SYS:"))))
+(set target (tackon target "SCSIToolbox"))
+(set cdicon (tackon target "CDChanger"))
+(set sdicon (tackon target "SDTransfer"))
+(set newcd (not (exists (cat cdicon ".info") (noreq))))
+(set newsd (not (exists (cat sdicon ".info") (noreq))))
+
+(set wantl
+    (askbool (prompt "Copy sharedfs to L:?\n\n"
+                     "sharedfs is the SHARED: handler: it mounts the SD card's shared "
+                     "folder as a volume you can use from Workbench and the Shell.")
+             (help "Mounting SHARED: needs L:sharedfs. Say no if you don't want "
+                   "SHARED:; the other tools don't need it.\n\n"
+                   "If SHARED: is mounted now, the new handler is used after the "
+                   "next reboot.")
+             (choices "Yes" "No")
+             (default 1)))
+
+(if (or newcd newsd)
+  (
+    (set scsidev
+        (askstring (prompt "Which SCSI device driver does your BlueSCSI or ZuluSCSI "
+                           "hang off?\n\n"
+                           "This goes into the Tool Types of the CDChanger and "
+                           "SDTransfer icons (DEVICE=).")
+                   (help "The name of your SCSI adapter's device, for example "
+                         "scsi.device (A600/A1200/A4000 built-in, A3000), "
+                         "gvpscsi.device (GVP), ExpXDS.device (DataFlyer).\n\n"
+                         "Capitals matter: type it exactly as it is spelled.\n\n"
+                         "You can change it later in the icon's Information window.")
+                   (default "scsi.device")))
+    (set sdunit
+        (asknumber (prompt "Which SCSI unit (ID) is the BlueSCSI or ZuluSCSI?\n\n"
+                           "SDTransfer uses this unit (UNIT=). Any unit the device "
+                           "emulates works, for example its hard disk.")
+                   (help "The unit is the SCSI ID. The first digit in an image name "
+                         "on the SD card is its ID: HD2_512.hda is unit 2.\n\n"
+                         "You can change it later in the icon's Information window.")
+                   (range 0 7)
+                   (default 2)))
+    (set cdunit
+        (asknumber (prompt "Which SCSI unit (ID) is the emulated CD-ROM drive?\n\n"
+                           "CDChanger needs the CD unit (UNIT=).")
+                   (help "The first digit in the CD image name on the SD card is its "
+                         "ID: CD3.iso, or a CD3 folder of images, is unit 3.\n\n"
+                         "You can change it later in the icon's Information window.")
+                   (range 0 7)
+                   (default 3)))
+  ))
+
+; ---- the files -------------------------------------------------------------
+(complete 10)
+; the drawer gets this Workbench's own drawer icon (ENV:Sys/def_drawer.info)
+(if (not (exists target (noreq))) (makedir target (infos)))
+
+(copyfiles (prompt "Copying BlueSCSIToolbox")
+           (help @copyfiles-help)
+           (source "BlueSCSIToolbox") (dest target) (nogauge))
+(complete 25)
+
+; a new icon gets the device and unit; an existing one keeps its Tool Types
+(if newcd
+  (
+    (copyfiles (prompt "Copying CDChanger") (help @copyfiles-help)
+               (source "CDChanger") (dest target) (nogauge) (infos))
+    (tooltype (dest cdicon)
+              (settooltype "DEVICE" scsidev)
+              (settooltype "UNIT" (cat cdunit)))
+  )
+  (copyfiles (prompt "Copying CDChanger") (help @copyfiles-help)
+             (source "CDChanger") (dest target) (nogauge)))
+(complete 40)
+
+(if newsd
+  (
+    (copyfiles (prompt "Copying SDTransfer") (help @copyfiles-help)
+               (source "SDTransfer") (dest target) (nogauge) (infos))
+    (tooltype (dest sdicon)
+              (settooltype "DEVICE" scsidev)
+              (settooltype "UNIT" (cat sdunit)))
+  )
+  (copyfiles (prompt "Copying SDTransfer") (help @copyfiles-help)
+             (source "SDTransfer") (dest target) (nogauge)))
+(complete 55)
+
+(run (cat "Protect >NIL: \"" (tackon target "BlueSCSIToolbox") "\" +rwed"))
+(run (cat "Protect >NIL: \"" cdicon "\" +rwed"))
+(run (cat "Protect >NIL: \"" sdicon "\" +rwed"))
+
+; mountlists you may have edited are kept
+(if (not (exists (tackon target "SHARED.mountlist") (noreq)))
+    (copyfiles (source "SHARED.mountlist") (dest target) (nogauge)))
+(if (not (exists (tackon target "SHARED-GVP.mountlist") (noreq)))
+    (copyfiles (source "SHARED-GVP.mountlist") (dest target) (nogauge)))
+(copyfiles (source "README.md") (dest target) (nogauge))
+(copyfiles (source "LICENSE.txt") (dest target) (nogauge))
+(complete 75)
+
+(if wantl
+  (
+    (copyfiles (prompt "Copying sharedfs to L:")
+               (help @copyfiles-help)
+               (source "sharedfs") (dest "L:") (nogauge))
+    (run "Protect >NIL: L:sharedfs +rwed")
+  ))
+(complete 90)
+
+; the package drawer came with a plain drawer icon so it shows when unpacked;
+; from now on it has this Workbench's own (ENV:Sys/def_drawer.info). Not at a
+; disk root: a disk root has no drawer icon, and it may be locked.
+(set pkgdir (expandpath ""))
+(if (and (exists "ENV:Sys/def_drawer.info" (noreq))
+         (<> (substr pkgdir (- (strlen pkgdir) 1) 1) ":"))
+    (if (exists (cat pkgdir ".info") (noreq))
+        (run (cat "Copy >NIL: ENV:Sys/def_drawer.info \"" pkgdir ".info\""))))
+(complete 100)
+
+; ---- what went where -------------------------------------------------------
+(set icons
+    (if (or newcd newsd)
+        (cat "CDChanger uses " scsidev " unit " cdunit ", SDTransfer " scsidev
+             " unit " sdunit " (the Tool Types of their icons).\n\n")
+        "CDChanger and SDTransfer kept their Tool Types (DEVICE=, UNIT=).\n\n"))
+(set shared
+    (if wantl
+        (cat "sharedfs is in L:. To mount SHARED:, set Device and Unit in "
+             (tackon target "SHARED.mountlist")
+             " (SHARED-GVP.mountlist is the same for a GVP adapter), then type "
+             "in a Shell:\n\n   Mount SHARED: FROM "
+             (tackon target "SHARED.mountlist"))
+        (cat "sharedfs was not copied, so SHARED: can't be mounted yet. Run the "
+             "installer again, or copy sharedfs to L: yourself.")))
+
+(message "SCSIToolbox 1.9.2 is installed in " target ".\n\n"
+         icons shared "\n\n"
+         "BlueSCSIToolbox is the Shell tool: copy it to C: to use it from anywhere.")
+(exit (quiet))

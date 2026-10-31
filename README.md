@@ -100,7 +100,29 @@ SCSI data direction and transfer lengths — see History).
 - A SCSI adapter with an AmigaOS device driver (scsi.device, gvpscsi.device,
   ExpXDS.device, ...) and a BlueSCSI V2 or ZuluSCSI with the Toolbox enabled.
 
-## Install
+## Installing
+
+1. Unpack `SCSIToolbox-Amiga-<version>.lha` anywhere, e.g. `lha x SCSIToolbox-Amiga-1.9.2.lha RAM:`.
+2. Open the `SCSIToolbox` drawer and double-click **Install_SCSIToolbox**.
+3. The installer asks:
+   - where the `SCSIToolbox` drawer goes (default `SYS:Tools`);
+   - whether to copy `sharedfs`, the `SHARED:` handler, to `L:` (default yes);
+   - your SCSI device driver (default `scsi.device`; capitals matter, e.g.
+     `gvpscsi.device`, `ExpXDS.device`), the unit of the BlueSCSI/ZuluSCSI for
+     SDTransfer (default 2) and the unit of its CD-ROM drive for CDChanger
+     (default 3). These go into the Tool Types of the two icons.
+4. It copies the three tools with their icons, both mountlists, this README and
+   the licence into the drawer, and `sharedfs` to `L:`.
+
+Run it again to update: icons that are already there keep their Tool Types (it
+does not ask for the device again), and mountlists you edited are kept. It does
+not mount `SHARED:` for you, because the mountlist has to name your adapter: set
+`Device` and `Unit` in the drawer's `SHARED.mountlist` (or `SHARED-GVP.mountlist`),
+then `Mount SHARED: FROM SYS:Tools/SCSIToolbox/SHARED.mountlist` (for the default drawer).
+
+You can still install by hand instead, as below.
+
+### By hand
 
 The release archive holds one drawer, `SCSIToolbox` (with its drawer icon):
 
@@ -112,6 +134,7 @@ The release archive holds one drawer, `SCSIToolbox` (with its drawer icon):
 | `sharedfs` | `L:` | the `SHARED:` filesystem handler |
 | `SHARED.mountlist`, `SHARED-GVP.mountlist` | edit Device/Unit, then `Mount SHARED: from SHARED.mountlist`, or put the entry in `DEVS:DOSDrivers/` as `SHARED` | mount entries for `SHARED:` |
 | `LICENSE.txt`, `README.md` | | GPL-3.0 licence, this file |
+| `Install_SCSIToolbox` + `.info` | | the installer (above) |
 
 A `release-all` archive has the four programs (with their icons) in one drawer
 per CPU (`68000`, `68020`, `68040`, `68060`); copy the set that matches your CPU.
@@ -197,6 +220,9 @@ repository.
 
 *From 1.7 on, every tool carries the suite version.*
 
+* 1.9.2 — **an installer**: double-click `Install_SCSIToolbox` in the
+  unpacked drawer (see [Installing](#installing)). The drawers get your
+  Workbench's own drawer icon. The tools are otherwise the same as 1.9.1.
 * 1.9.1 — **Overwriting a file on a ZuluSCSI works again.** ZuluSCSI
   firmware v2026.10.30 truncates a file that a Toolbox upload replaces
   ([ZuluSCSI-firmware#1014](https://github.com/ZuluSCSI/ZuluSCSI-firmware/pull/1014)),
