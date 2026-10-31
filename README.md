@@ -67,9 +67,9 @@ Menus (right mouse button):
 | | Snapshot window / Unsnapshot window | |
 
 **Upload** sends one file into the folder the window shows. The SD card takes
-names of up to 32 characters. On BlueSCSI an existing file of the same name is
-replaced after you confirm; ZuluSCSI cannot write over a file (it would keep the
-old tail), so there SDTransfer refuses and you remove the old file first.
+names of up to 32 characters. An existing file of the same name is replaced
+after you confirm. On a ZuluSCSI that needs firmware v2026.10.30 or later (older
+firmware keeps the old file's tail), so the question reminds you.
 
 Settings > **Drawers**: the drawer the Save requester (Download to) and the
 Upload requester (Upload from) start in (empty = the program's drawer), and

@@ -577,9 +577,10 @@ static void upProgress(LONG sent)
 }
 
 /* Copy a local file into the folder shown, under its own name. The firmware
-   takes names of up to 32 characters. ZuluSCSI does not truncate a file it
-   writes over (a shorter upload keeps the old tail), so there an existing
-   name is refused; BlueSCSI truncates, so it asks first. */
+   takes names of up to 32 characters. An existing name is replaced after
+   asking; ZuluSCSI truncates the old file from firmware v2026.10.30 on
+   (before that a shorter upload kept the old tail, and the firmware version
+   cannot be read over SCSI), so its question says so. */
 static void Upload(void)
 {
    static char msg[MAXPATH + 48];
@@ -613,19 +614,14 @@ static void Upload(void)
          MessageBox(appname, "A folder of that name is already there.");
          return;
       }
-      if (scsi_isZuluSCSI)
-      {
-         MessageBox(appname, "That file is already on the SD card.\n"
-                             "ZuluSCSI cannot write over a file (it would keep\n"
-                             "the old tail): remove it on the SD card first.");
-         return;
-      }
-      else
       {
          struct EasyStruct es = {sizeof(struct EasyStruct), 0, NULL,
                                  NULL, NULL};
          es.es_Title = (UBYTE *)appname;
-         es.es_TextFormat = (UBYTE *)"'%s' is already on the SD card.\nReplace it?";
+         es.es_TextFormat = (UBYTE *)(scsi_isZuluSCSI
+            ? "'%s' is already on the SD card.\nReplace it?\n\n"
+              "(ZuluSCSI needs firmware v2026.10.30 or\nlater to replace a file correctly.)"
+            : "'%s' is already on the SD card.\nReplace it?");
          es.es_GadgetFormat = (UBYTE *)"Replace|Cancel";
          if (EasyRequest(ui.win, &es, NULL, (ULONG)name) != 1)
             return;
