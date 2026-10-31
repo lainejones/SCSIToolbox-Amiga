@@ -40,6 +40,7 @@
 #include <exec/memory.h>
 #include <libraries/asl.h>
 #include <proto/exec.h>
+#include <exec/tasks.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>
 #include <proto/asl.h>
@@ -156,7 +157,44 @@ static void DevicePage(void);
 static void DrawersPage(void);
 static void SettingsResult(int res, BOOL ok);
 
+/* Started from Workbench, or by Run, a program gets the default 4 KB stack
+   (the icon says 4096): too little for the ASL file requester and
+   EasyRequest on top of the 1 KB path buffers - SDTransfer overran it and
+   damaged the RAM disk's memory on an A1200. So it runs on its own 32 KB,
+   through StackSwap(), as WHDUpdate does; across the swap only globals are
+   used. */
+#define NEED_STACK 32768UL
+static struct StackSwapStruct swap;
+static APTR swapMem;
+static int swapRc, g_argc;
+static char **g_argv;
+
+static int sdt_main(int argc, char **argv);
+
 int main(int argc, char **argv)
+{
+   struct Task *me = FindTask(NULL);
+
+   if ((ULONG)me->tc_SPUpper - (ULONG)me->tc_SPLower >= NEED_STACK - 4096)
+      return sdt_main(argc, argv);
+   if (!(swapMem = AllocVec(NEED_STACK, MEMF_ANY)))
+   {
+      PutStr("SDTransfer: not enough memory for its stack\n");
+      return RETURN_FAIL;
+   }
+   g_argc = argc;
+   g_argv = argv;
+   swap.stk_Lower = swapMem;
+   swap.stk_Upper = (ULONG)swapMem + NEED_STACK;
+   swap.stk_Pointer = (APTR)swap.stk_Upper;
+   StackSwap(&swap);
+   swapRc = sdt_main(g_argc, g_argv);
+   StackSwap(&swap);
+   FreeVec(swapMem);
+   return swapRc;
+}
+
+static int sdt_main(int argc, char **argv)
 {
    BOOL fromCLI = FALSE;
 
@@ -714,14 +752,24 @@ static BOOL PrefsWrite(BOOL keep)
 
    buf[0] = '\0';
    if (gP.dev[0])
-      p += sprintf(p, "DEVICE=%s\n", gP.dev);
+   {
+      sprintf(p, "DEVICE=%s\n", gP.dev);
+      p += strlen(p);
+   }
    if (gP.unit >= 0)
-      p += sprintf(p, "UNIT=%ld\n", gP.unit);
-   p += sprintf(p, "DOWNLOADDIR=%s\nUPLOADDIR=%s\nREMEMBERDIRS=%s\n",
+   {
+      sprintf(p, "UNIT=%ld\n", gP.unit);
+      p += strlen(p);
+   }
+   sprintf(p, "DOWNLOADDIR=%s\nUPLOADDIR=%s\nREMEMBERDIRS=%s\n",
                 gP.downDir, gP.upDir, gP.remember ? "YES" : "NO");
+   p += strlen(p);
    if (gP.ww > 0)
-      p += sprintf(p, "WINDOW=%ld,%ld,%ld,%ld\n",
+   {
+      sprintf(p, "WINDOW=%ld,%ld,%ld,%ld\n",
                    (LONG)gP.wx, (LONG)gP.wy, (LONG)gP.ww, (LONG)gP.wh);
+      p += strlen(p);
+   }
    return (BOOL)(amg_env_write(PREFSFILE, buf, (ULONG)(p - buf), keep) != 0);
 }
 

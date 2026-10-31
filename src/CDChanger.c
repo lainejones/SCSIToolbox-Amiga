@@ -40,6 +40,7 @@
 #include <dos/dosextens.h>
 #include <dos/filehandler.h>
 #include <proto/exec.h>
+#include <exec/tasks.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>
 #include <proto/utility.h>
@@ -138,7 +139,44 @@ static void PrefsLine(const char *key, char *val);
 static BOOL PrefsWrite(BOOL keep);
 static void DevicePage(void);
 
+/* Started from Workbench, or by Run, a program gets the default 4 KB stack
+   (the icon says 4096): too little for the ASL file requester and
+   EasyRequest on top of the 1 KB path buffers - SDTransfer overran it and
+   damaged the RAM disk's memory on an A1200. So it runs on its own 32 KB,
+   through StackSwap(), as WHDUpdate does; across the swap only globals are
+   used. */
+#define NEED_STACK 32768UL
+static struct StackSwapStruct swap;
+static APTR swapMem;
+static int swapRc, g_argc;
+static char **g_argv;
+
+static int cdc_main(int argc, char **argv);
+
 int main(int argc, char **argv)
+{
+   struct Task *me = FindTask(NULL);
+
+   if ((ULONG)me->tc_SPUpper - (ULONG)me->tc_SPLower >= NEED_STACK - 4096)
+      return cdc_main(argc, argv);
+   if (!(swapMem = AllocVec(NEED_STACK, MEMF_ANY)))
+   {
+      PutStr("CDChanger: not enough memory for its stack\n");
+      return RETURN_FAIL;
+   }
+   g_argc = argc;
+   g_argv = argv;
+   swap.stk_Lower = swapMem;
+   swap.stk_Upper = (ULONG)swapMem + NEED_STACK;
+   swap.stk_Pointer = (APTR)swap.stk_Upper;
+   StackSwap(&swap);
+   swapRc = cdc_main(g_argc, g_argv);
+   StackSwap(&swap);
+   FreeVec(swapMem);
+   return swapRc;
+}
+
+static int cdc_main(int argc, char **argv)
 {
    /* Suppress DOS volume requesters from our own process before any DOS activity. */
    ((struct Process *)FindTask(NULL))->pr_WindowPtr = (APTR)-1L;
@@ -443,12 +481,21 @@ static BOOL PrefsWrite(BOOL keep)
 
    buf[0] = '\0';
    if (gP.dev[0])
-      p += sprintf(p, "DEVICE=%s\n", gP.dev);
+   {
+      sprintf(p, "DEVICE=%s\n", gP.dev);
+      p += strlen(p);
+   }
    if (gP.unit >= 0)
-      p += sprintf(p, "UNIT=%ld\n", gP.unit);
+   {
+      sprintf(p, "UNIT=%ld\n", gP.unit);
+      p += strlen(p);
+   }
    if (gP.ww > 0)
-      p += sprintf(p, "WINDOW=%ld,%ld,%ld,%ld\n",
+   {
+      sprintf(p, "WINDOW=%ld,%ld,%ld,%ld\n",
                    (LONG)gP.wx, (LONG)gP.wy, (LONG)gP.ww, (LONG)gP.wh);
+      p += strlen(p);
+   }
    return (BOOL)(amg_env_write(PREFSFILE, buf, (ULONG)(p - buf), keep) != 0);
 }
 
