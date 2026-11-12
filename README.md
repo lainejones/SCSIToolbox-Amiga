@@ -166,7 +166,7 @@ SCSI data direction and transfer lengths — see History).
 
 ## Installing
 
-1. Unpack `SCSIToolbox-Amiga-<version>.lha` anywhere, e.g. `lha x SCSIToolbox-Amiga-1.9.2.lha RAM:`.
+1. Unpack `SCSIToolbox-Amiga-<version>.lha` anywhere, e.g. `lha x SCSIToolbox-Amiga-1.9.3.lha RAM:`.
 2. Open the `SCSIToolbox` drawer and double-click **Install_SCSIToolbox**.
 3. The installer asks:
    - where the `SCSIToolbox` drawer goes (default `SYS:Tools`);
@@ -290,7 +290,8 @@ repository.
   Save / Use / Defaults / Cancel kept in `ENV:CDChanger.prefs` /
   `ENV:SDTransfer.prefs`, Snapshot / Unsnapshot window. SDTransfer can
   **upload** a file into the folder shown, refresh, and go to the parent
-  folder from the menu; Settings > Drawers sets where its requesters start.
+  folder from the menu (an existing file is replaced after you confirm);
+  Settings > Drawers sets where its requesters start.
   The windows now open below the screen's title bar and fit a 640x200 NTSC
   screen with Topaz 8 (the logo is left out when the window is too low for it).
 * 1.9.2 — **an installer**: double-click `Install_SCSIToolbox` in the

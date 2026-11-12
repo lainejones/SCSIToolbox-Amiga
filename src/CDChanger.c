@@ -49,10 +49,10 @@
 #include "gtui.h"
 #include "amigui.h"
 
-#define VERSION   "1.9.2"
+#define VERSION   "1.9.3"
 #define PREFSFILE "CDChanger.prefs"
 
-__attribute__((used)) static const char ver[] = "$VER: CDChanger " VERSION " (30.10.2026)";
+__attribute__((used)) static const char ver[] = "$VER: CDChanger " VERSION " (12.11.2026)";
 
 /* Marker stored instead of an image name when the tray was ejected */
 #define EJECTED_MARKER "<EJECTED>"

@@ -14,7 +14,7 @@
     (abort "Can't find the SCSIToolbox files next to this script.\n\n"
            "Run the installer from the drawer it came in."))
 
-(message "SCSIToolbox 1.9.2 - tools for BlueSCSI and ZuluSCSI\n\n"
+(message "SCSIToolbox 1.9.3 - tools for BlueSCSI and ZuluSCSI\n\n"
          "CDChanger swaps CD images, SDTransfer browses the SD card and downloads "
          "files, BlueSCSIToolbox does both from the Shell, and sharedfs mounts the "
          "SD card's shared folder as the SHARED: volume.\n\n"
@@ -159,7 +159,7 @@
         (cat "sharedfs was not copied, so SHARED: can't be mounted yet. Run the "
              "installer again, or copy sharedfs to L: yourself.")))
 
-(message "SCSIToolbox 1.9.2 is installed in " target ".\n\n"
+(message "SCSIToolbox 1.9.3 is installed in " target ".\n\n"
          icons shared "\n\n"
          "BlueSCSIToolbox is the Shell tool: copy it to C: to use it from anywhere.")
 (exit (quiet))
