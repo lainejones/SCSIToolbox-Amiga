@@ -50,10 +50,10 @@
 #include "gtui.h"
 #include "amigui.h"
 
-#define VERSION   "1.9.3"
+#define VERSION   "1.9.4"
 #define PREFSFILE "SDTransfer.prefs"
 
-__attribute__((used)) static const char ver[] = "$VER: SDTransfer " VERSION " (12.11.2026)";
+__attribute__((used)) static const char ver[] = "$VER: SDTransfer " VERSION " (13.11.2026)";
 
 /* Kinds of list row */
 #define NODE_DIR    0

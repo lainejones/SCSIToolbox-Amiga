@@ -31,6 +31,7 @@
 #include <proto/utility.h>
 #include <stdlib.h>
 #include <string.h>
+#include "ejectfix.h"
 
 #define BLUESCSI_TOOLBOX_COUNT_FILES 0xD2
 #define BLUESCSI_TOOLBOX_LIST_FILES 0xD0
@@ -62,7 +63,7 @@
 #define MAX_MAC_PATH 32
 #define ENTRY_SIZE 40
 
-__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.9.3 (12.11.2026)";
+__attribute__((used)) static const char ver[] = "$VER: BlueSCSIToolbox 1.9.4 (13.11.2026)";
 
 /* Last-CD state shared with CDChanger (see SaveLastCD there) */
 #define LASTCD_ENV     "ENV:CDChanger.lastcd"
@@ -400,7 +401,20 @@ GetProgramName(progname, sizeof(progname));
          {
             SaveLastCD((char *)EJECTED_MARKER);
             DiskChange();
-            PutStr("Ejected\n");
+            if (ef_eject_held() == 0)
+            {
+               /* the firmware loaded the next image: say how to stop that */
+               char lines[160];
+               ef_ini_lines(lines, sizeof(lines), (int)(scsi_id % 10), 0);
+               Printf("Ejected, but the %s put a CD back in. To keep an eject,\n"
+                      "add these lines to %s on the SD card, then switch off and on:\n%s",
+                      (ULONG)(scsi_isZuluSCSI ? "ZuluSCSI" : "BlueSCSI"),
+                      (ULONG)(scsi_isZuluSCSI ? "zuluscsi.ini" : "bluescsi.ini"), (ULONG)lines);
+               if (!scsi_isZuluSCSI)
+                  PutStr("StartEjected=1  (empty after power-on as well)\n");
+            }
+            else
+               PutStr("Ejected\n");
          }
       }
       else

@@ -48,11 +48,12 @@
 #include "toolbox.h"
 #include "gtui.h"
 #include "amigui.h"
+#include "ejectfix.h"
 
-#define VERSION   "1.9.3"
+#define VERSION   "1.9.4"
 #define PREFSFILE "CDChanger.prefs"
 
-__attribute__((used)) static const char ver[] = "$VER: CDChanger " VERSION " (12.11.2026)";
+__attribute__((used)) static const char ver[] = "$VER: CDChanger " VERSION " (13.11.2026)";
 
 /* Marker stored instead of an image name when the tray was ejected */
 #define EJECTED_MARKER "<EJECTED>"
@@ -135,6 +136,8 @@ static void ShowList(void);
 static void SetHeader(void);
 static void SetCD(void);
 static void Eject(void);
+static void EjectCameBack(void);
+static void SetPointerBusy(BOOL busy);
 static void PrefsLine(const char *key, char *val);
 static BOOL PrefsWrite(BOOL keep);
 static void DevicePage(void);
@@ -379,11 +382,107 @@ static void Eject(void)
    {
       DiskChange();
       SaveLastCD(EJECTED_MARKER);
+      SetPointerBusy(TRUE);
+      if (ef_eject_held() == 0)        /* the firmware put a disc back */
+      {
+         SetPointerBusy(FALSE);
+         EjectCameBack();
+      }
+      SetPointerBusy(FALSE);
    }
    else
    {
       MessageBox(appname, "Eject failed (SCSI error)");
    }
+}
+
+/* A requester with text that may hold '%' (file names) */
+static LONG Ask(const char *body, const char *buttons)
+{
+   struct EasyStruct es = { sizeof(struct EasyStruct), 0, NULL, NULL, NULL };
+   es.es_Title = (UBYTE *)appname;
+   es.es_TextFormat = (UBYTE *)"%s";
+   es.es_GadgetFormat = (UBYTE *)buttons;
+   return EasyRequest(ui.win, &es, NULL, (ULONG)body);
+}
+
+/* The eject didn't stay: both firmwares put the next image back by default.
+   Offer to change the ini (BlueSCSI with working-directory firmware), or
+   say which lines to add on a PC. */
+static void EjectCameBack(void)
+{
+   char body[900], lines[160], msg[120];
+   int id = (int)(scsi_unit % 10);
+   const char *kind = scsi_isZuluSCSI ? "ZuluSCSI" : "BlueSCSI";
+   const char *ini = scsi_isZuluSCSI ? "zuluscsi.ini" : "bluescsi.ini";
+
+   if (scsi_isBlueSCSI && (scsi_capabilities & BLUESCSI_TOOLBOX_CAP_SET_WORKING_DIR))
+   {
+      LONG r;
+      sprintf(body,
+              "The BlueSCSI put a CD back in. Unless bluescsi.ini says\n"
+              "otherwise, it loads the next image after an eject.\n\n"
+              "CDChanger can change bluescsi.ini on the SD card so an\n"
+              "eject on SCSI ID %d stays ejected. The file as it is now\n"
+              "is kept as bluescsi.ini.bak. The change works after the\n"
+              "next power-off and on (a reboot is not enough).\n\n"
+              "Keep ejected:       an eject stays until you pick a CD.\n"
+              "Always start empty: the same, and the drive is empty\n"
+              "                    after every power-on too.",
+              id);
+      r = Ask(body, "Keep ejected|Always start empty|Not now");
+      if (r == 0)
+         return;
+      SetPointerBusy(TRUE);
+      if (ef_fix_bluescsi_ini(id, r == 2, msg, sizeof(msg)) == 0)
+      {
+         SetPointerBusy(FALSE);
+         Ask("bluescsi.ini is changed (the old one is bluescsi.ini.bak).\n"
+             "Switch the Amiga off and on for it to take effect.", "OK");
+      }
+      else
+      {
+         SetPointerBusy(FALSE);
+         sprintf(body, "bluescsi.ini was not changed:\n%s", msg);
+         Ask(body, "OK");
+      }
+      ShowList();                      /* the shared file list was reused */
+      return;
+   }
+
+   ef_ini_lines(lines, sizeof(lines), id, 0);
+   sprintf(body,
+           "The %s put a CD back in. Unless %s says\n"
+           "otherwise, it loads the next image after an eject.\n\n"
+           "This firmware doesn't let the Amiga change that file, so\n"
+           "add these lines to %s on the SD card on a PC,\n"
+           "then switch the Amiga off and on:\n\n"
+           "%s%s\n"
+           "For a drive that is empty at every start as well, let\n"
+           "Install_SCSIToolbox add the eject to S:User-Startup.",
+           kind, ini, ini, lines,
+           scsi_isZuluSCSI ? "" : "StartEjected=1  (empty after power-on)\n");
+   Ask(body, "OK");
+}
+
+/* Busy pointer on our window (2.04-safe: SetWindowPointer is 3.0+) */
+static void SetPointerBusy(BOOL busy)
+{
+   static UWORD __chip busyPtr[] =
+   {
+      0x0000, 0x0000,
+      0x0400, 0x07C0, 0x0000, 0x07C0, 0x0100, 0x0380, 0x0000, 0x07E0,
+      0x07C0, 0x1FF8, 0x1FF0, 0x3FEC, 0x3FF8, 0x7FDE, 0x3FF8, 0x7FBE,
+      0x7FFC, 0xFF7F, 0x7EFC, 0xFFFF, 0x7FFC, 0xFFFF, 0x3FF8, 0x7FFE,
+      0x3FF8, 0x7FFE, 0x1FF0, 0x3FFC, 0x07C0, 0x1FF8, 0x0000, 0x07E0,
+      0x0000, 0x0000
+   };
+   if (!ui.win)
+      return;
+   if (busy)
+      SetPointer(ui.win, busyPtr, 16, 16, -6, 0);
+   else
+      ClearPointer(ui.win);
 }
 
 /* Copy a BCPL string to a C string */

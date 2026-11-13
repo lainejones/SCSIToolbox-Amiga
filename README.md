@@ -166,7 +166,7 @@ SCSI data direction and transfer lengths — see History).
 
 ## Installing
 
-1. Unpack `SCSIToolbox-Amiga-<version>.lha` anywhere, e.g. `lha x SCSIToolbox-Amiga-1.9.3.lha RAM:`.
+1. Unpack `SCSIToolbox-Amiga-<version>.lha` anywhere, e.g. `lha x SCSIToolbox-Amiga-1.9.4.lha RAM:`.
 2. Open the `SCSIToolbox` drawer and double-click **Install_SCSIToolbox**.
 3. The installer asks:
    - where the `SCSIToolbox` drawer goes (default `SYS:Tools`);
@@ -174,7 +174,9 @@ SCSI data direction and transfer lengths — see History).
    - your SCSI device driver (default `scsi.device`; capitals matter, e.g.
      `gvpscsi.device`, `ExpXDS.device`), the unit of the BlueSCSI/ZuluSCSI for
      SDTransfer (default 2) and the unit of its CD-ROM drive for CDChanger
-     (default 3). These go into the Tool Types of the two icons.
+     (default 3). These go into the Tool Types of the two icons;
+   - what the CD drive should hold when the Amiga starts: restore the last CD,
+     always start empty, or no CD command (see [Keeping a CD ejected](#keeping-a-cd-ejected)).
 4. It copies the three tools with their icons, both mountlists, this README and
    the licence into the drawer, and `sharedfs` to `L:`.
 
@@ -226,6 +228,33 @@ after unpacking a `.zip` make the programs executable, e.g.
 Tested on real hardware (2026-08): A500 + GVP A530 + BlueSCSI Pico W fw 2026.04.27
 (full subfolder suite), and A1200 + DataFlyer SCSI+ + ZuluSCSI (flat behaviour and
 capability gating).
+
+## Keeping a CD ejected
+
+BlueSCSI and ZuluSCSI load the next CD image after an eject unless their ini
+says otherwise, and at power-on they load the first image. To keep an eject,
+the CD drive's section (`[SCSI<ID>]`, e.g. `[SCSI3]`) needs:
+
+```
+ReinsertAfterEject=0
+ReinsertCDOnInquiry=0
+StartEjected=1        (BlueSCSI only: empty after power-on too)
+```
+
+- **CDChanger** checks after each Eject. On a BlueSCSI with firmware
+  v2026.04.27+ it offers to write this into `bluescsi.ini` for you
+  (*Keep ejected* or *Always start empty*); the old file is kept as
+  `bluescsi.ini.bak`, nothing else in the file changes. On a ZuluSCSI (its
+  firmware doesn't let the Amiga reach `zuluscsi.ini`) or older BlueSCSI
+  firmware it shows the lines to add on a PC.
+- **`BlueSCSIToolbox ... EJECT`** prints the lines when the CD came back.
+- The firmware reads its ini at power-on: switch the Amiga off and on after
+  the change; a reboot is not enough.
+- **At startup**, `Install_SCSIToolbox` can add one of these to S:User-Startup:
+  `BlueSCSIToolbox DEVICE=<dev> UNIT=<cd unit> RESTORECD` (the CD you last
+  picked, or empty if you ejected it) or `... EJECT` (always empty). This is
+  the way to an empty drive at every start on a ZuluSCSI, which has no
+  `StartEjected`.
 
 ## Building
 
@@ -284,6 +313,13 @@ repository.
 
 *From 1.7 on, every tool carries the suite version.*
 
+* 1.9.4 — **an eject that stays ejected**: after an eject, CDChanger and
+  `BlueSCSIToolbox EJECT` check whether the firmware put a CD back. On a
+  BlueSCSI with firmware v2026.04.27+ CDChanger offers to set this in
+  `bluescsi.ini` (Keep ejected / Always start empty; the old file is kept as
+  `bluescsi.ini.bak`); otherwise it shows the lines to add on a PC (see
+  [Keeping a CD ejected](#keeping-a-cd-ejected)). The installer asks what
+  the CD drive should hold at startup and writes the line in S:User-Startup.
 * 1.9.3 — **menus and settings for
   CDChanger and SDTransfer**: right-mouse-button menus (About, Quit, the
   program's actions with Amiga-key shortcuts), settings pages with

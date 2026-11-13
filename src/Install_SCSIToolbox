@@ -14,7 +14,7 @@
     (abort "Can't find the SCSIToolbox files next to this script.\n\n"
            "Run the installer from the drawer it came in."))
 
-(message "SCSIToolbox 1.9.3 - tools for BlueSCSI and ZuluSCSI\n\n"
+(message "SCSIToolbox 1.9.4 - tools for BlueSCSI and ZuluSCSI\n\n"
          "CDChanger swaps CD images, SDTransfer browses the SD card and downloads "
          "files, BlueSCSIToolbox does both from the Shell, and sharedfs mounts the "
          "SD card's shared folder as the SHARED: volume.\n\n"
@@ -76,6 +76,42 @@
                    (default 3)))
   ))
 
+; what the CD drive holds after a reboot: a line in S:User-Startup
+(set cdstart
+    (askchoice (prompt "What should the emulated CD-ROM drive hold when the Amiga starts?\n\n"
+                       "BlueSCSIToolbox can do this from S:User-Startup.")
+               (help "Restore the last CD: the image you last picked in CDChanger is "
+                     "loaded again, and if you ejected it the drive stays empty.\n\n"
+                     "Always start empty: the drive is ejected at every start, "
+                     "whatever was in it.\n\n"
+                     "No CD command: the firmware decides (it loads the first image). "
+                     "Takes the CD command out of S:User-Startup again.\n\n"
+                     "An eject only stays ejected when the firmware's ini allows it "
+                     "(ReinsertAfterEject=0, ReinsertCDOnInquiry=0 under [SCSI<ID>]). "
+                     "CDChanger offers to set this on a BlueSCSI and tells you the "
+                     "lines for a ZuluSCSI.")
+               (choices "Leave S:User-Startup as it is"
+                        "Restore the last CD"
+                        "Always start empty"
+                        "No CD command at startup")
+               (default (if newcd 1 0))))
+
+(if (and (> cdstart 0) (< cdstart 3) (not (or newcd newsd)))
+  (
+    (set scsidev
+        (askstring (prompt "Which SCSI device driver does the emulated CD-ROM drive "
+                           "hang off?")
+                   (help "The same device as in CDChanger's DEVICE= Tool Type, for "
+                         "example scsi.device, gvpscsi.device or ExpXDS.device. "
+                         "Capitals matter.")
+                   (default "scsi.device")))
+    (set cdunit
+        (asknumber (prompt "Which SCSI unit (ID) is the emulated CD-ROM drive?")
+                   (help "The same unit as in CDChanger's UNIT= Tool Type.")
+                   (range 0 7)
+                   (default 3)))
+  ))
+
 ; ---- the files -------------------------------------------------------------
 (complete 10)
 ; the drawer gets this Workbench's own drawer icon (ENV:Sys/def_drawer.info)
@@ -131,6 +167,23 @@
                (source "sharedfs") (dest "L:") (nogauge))
     (run "Protect >NIL: L:sharedfs +rwed")
   ))
+(complete 85)
+
+(if (> cdstart 0)
+  (if (= cdstart 3)
+      (startup "SCSIToolbox"
+               (prompt "Taking the CD command out of S:User-Startup")
+               (help @startup-help)
+               (command "; no CD command: the firmware loads the first image"))
+    (
+      (set cdcmd
+          (cat "\"" (tackon target "BlueSCSIToolbox") "\" DEVICE=" scsidev
+               " UNIT=" cdunit (if (= cdstart 1) " RESTORECD" " EJECT") " >NIL:"))
+      (startup "SCSIToolbox"
+               (prompt (cat "Adding this line to S:User-Startup:\n\n" cdcmd))
+               (help @startup-help)
+               (command cdcmd))
+    )))
 (complete 90)
 
 ; the package drawer came with a plain drawer icon so it shows when unpacked;
@@ -159,7 +212,14 @@
         (cat "sharedfs was not copied, so SHARED: can't be mounted yet. Run the "
              "installer again, or copy sharedfs to L: yourself.")))
 
-(message "SCSIToolbox 1.9.3 is installed in " target ".\n\n"
-         icons shared "\n\n"
+(set cdline
+    (select cdstart ""
+            "At every start S:User-Startup loads the last CD you picked (or keeps the drive empty if you ejected it).\n\n"
+            "At every start S:User-Startup ejects the CD.\n\n"
+            "S:User-Startup runs no CD command: the firmware loads the first image.\n\n"))
+
+; two pages: all of it on one doesn't fit above the buttons
+(message "SCSIToolbox 1.9.4 is installed in " target ".\n\n" icons cdline)
+(message shared "\n\n"
          "BlueSCSIToolbox is the Shell tool: copy it to C: to use it from anywhere.")
 (exit (quiet))

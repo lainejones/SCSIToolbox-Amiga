@@ -1,4 +1,4 @@
-OBJS	 = BlueSCSIToolbox.o CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o gtui.o amigui.o SDTransfer.o sharedfs.o hstart.o
+OBJS	 = BlueSCSIToolbox.o ejectfix.o ejectini.o CDChanger.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o gtui.o amigui.o SDTransfer.o sharedfs.o hstart.o
 
 DISTDIR  = ../dist
 
@@ -54,16 +54,22 @@ hstart.o: hstart.s
 # NOTE: do NOT run $(STRIP) on the linked binaries - this toolchain's
 # m68k-amigaos-strip corrupts hunk executables (jumps into rodata at startup).
 # LFLAGS already links with -s, which strips correctly.
-BlueSCSIToolbox: BlueSCSIToolbox.o
-	$(CC) BlueSCSIToolbox.o -o BlueSCSIToolbox $(LFLAGS)
+BlueSCSIToolbox: BlueSCSIToolbox.o ejectfix.o
+	$(CC) BlueSCSIToolbox.o ejectfix.o -o BlueSCSIToolbox $(LFLAGS)
 
 BlueSCSIToolbox.o: BlueSCSIToolbox.c
 	$(CC) $(CFLAGS) -c BlueSCSIToolbox.c
 
-CDChanger: CDChanger.o gtui.o amigui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
-	$(CC) CDChanger.o gtui.o amigui.o -o CDChanger $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+CDChanger: CDChanger.o ejectfix.o ejectini.o gtui.o amigui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
+	$(CC) CDChanger.o ejectfix.o ejectini.o gtui.o amigui.o -o CDChanger $(LFLAGS) BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
 
-CDChanger.o: CDChanger.c toolbox.h gtui.h amigui.h
+ejectfix.o: ejectfix.c ejectfix.h
+	$(CC) $(CFLAGS) -c ejectfix.c
+
+ejectini.o: ejectini.c ejectfix.h toolbox.h
+	$(CC) $(CFLAGS) -c ejectini.c
+
+CDChanger.o: CDChanger.c toolbox.h gtui.h amigui.h ejectfix.h
 	$(CC) $(CFLAGS) -c CDChanger.c
 
 SDTransfer: SDTransfer.o gtui.o amigui.o BlueSCSIlogo.o ZuluSCSIlogo.o scsi.o common.o
